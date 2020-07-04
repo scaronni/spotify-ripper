@@ -365,7 +365,9 @@ class Ripper(threading.Thread):
             self.post.create_playlist_wpl(tracks)
 
             # actually removing the tracks from playlist
-            # self.post.remove_tracks_from_playlist()
+            if self.args.remove_from_playlist:
+                self.post.remove_tracks_from_playlist()
+                print("Playlist Emptied!")
 
             # remove libspotify's offline storage cache
             self.post.remove_offline_cache()
