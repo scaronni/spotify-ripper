@@ -58,9 +58,21 @@ Spotify has published newer libraries intended for Android and iOS development, 
 
 **Please note: Spotify’s highest quality setting is 320 kbps, so the benefit of ripping to a lossless format is to not double encode the audio data. It’s not possible to rip in true lossless quality.**
 
-## Usage
+## Spotify URIs/URLs
 
-Takes many command-line options:
+First of all, each resource you want to save locally needs to be in URI format. Now that URIs can no longer be shared directly from from the Spotify client, they need to be reassembled from the equivalent URLs. For example, this artist URL:
+
+```
+https://open.spotify.com/artist/0zfT626RwO6zN3RDYeRit5
+```
+Becomes a URI in this format:
+```
+spotify:artist:0zfT626RwO6zN3RDYeRit5
+```
+
+## Program usage
+
+The program takes many command-line options:
 
 ```
 usage: spotify-ripper [-h] [-S SETTINGS] [-a] [--aac] [--aiff] [--alac] [--all-artists] [--artist-album-type ARTIST_ALBUM_TYPE] [--artist-album-market ARTIST_ALBUM_MARKET] [-A]
