@@ -6,7 +6,9 @@ import os
 
 
 def create_default_dir():
-    default_dir = os.path.normpath(os.path.realpath((os.path.join(os.path.expanduser("~"), ".spotify-ripper"))))
+    config_home = os.environ.get("XDG_CONFIG_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".config")
+    default_dir = os.path.normpath(os.path.realpath(os.path.join(config_home, "spotify-ripper")))
     if not os.path.exists(default_dir):
         print("Creating default settings directory: " + default_dir)
         os.makedirs(default_dir.encode("utf-8"))
@@ -17,7 +19,7 @@ def _read(fn):
 
 setup(
     name='spotify-ripper',
-    version='2.18',
+    version='3.0',
     packages=find_packages(exclude=["tests"]),
     #scripts=['spotify_ripper/main.py'],
     include_package_data=True,
@@ -37,12 +39,11 @@ setup(
 
     # Requirements
     install_requires=[
-        'pyspotify>=2.0.5',
+        'librespot @ git+https://github.com/justin025/librespot-python.git',
         'colorama>=0.3.3',
         'mutagen>=1.30',
         'requests>=2.13.0',
         'schedule>=0.3.1',
-        'spotipy>=2.4.4'
     ],
 
     # Metadata
@@ -52,7 +53,7 @@ setup(
     license='MIT',
     keywords="spotify ripper mp3 ogg vorbis flac opus acc mp4 m4a",
     url='https://github.com/scaronni/spotify-ripper',
-    download_url='https://github.com/scaronni/spotify-ripper/tarball/2.15',
+    download_url='https://github.com/scaronni/spotify-ripper/tarball/3.0',
     classifiers=[
         'Topic :: Multimedia :: Sound/Audio',
         'Topic :: Multimedia :: Sound/Audio :: Capture/Recording',

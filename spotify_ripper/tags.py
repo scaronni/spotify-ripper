@@ -2,13 +2,11 @@
 
 from __future__ import unicode_literals
 
-from colorama import Fore, Style
-from mutagen import mp4, mp3, id3, flac, aiff, oggvorbis, oggopus, aac
+from colorama import Fore
+from mutagen import mp4, mp3, id3, flac, aiff, oggvorbis, oggopus
 from stat import ST_SIZE
 from spotify_ripper.utils import *
-from datetime import datetime
 import os
-import sys
 import base64
 import urllib.request
 
@@ -20,11 +18,11 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
 
     # ensure everything is loaded still
     if not track.is_loaded:
-        track.load(args.timeout)
+        track.load()
     if not track.album.is_loaded:
-        track.album.load(args.timeout)
+        track.album.load()
     album_browser = track.album.browse()
-    album_browser.load(args.timeout)
+    album_browser.load()
 
     # calculate num of tracks on disc and num of dics
     num_discs = 0
@@ -35,7 +33,7 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
         if track_browse.disc > num_discs:
             num_discs = track_browse.disc
 
-    # try to get genres from Spotify's Web API
+    # try to get genres from Spotify
     genres = None
     if args.genres is not None:
         genres = ripper.web.get_genres(args.genres, track)
@@ -67,18 +65,18 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
 
         # cover art image
         def get_cover_image(image_link):
-            image_link = 'https://i.scdn.co%s' % (
-                image_link[len('spotify'):].replace(':', '/'))
+            if not image_link or image_link == "None":
+                return None
             cover_file = urllib.request.urlretrieve(image_link)[0]
-
             with open(cover_file, "rb") as f:
-                if f.mode == "rb":
-                    return f.read()
-                else:
-                    return None
+                return f.read()
 
-        image_link = str(track.album.cover(2).link)
-        image = get_cover_image(image_link)
+        if args.large_cover_art:
+            image = ripper.web.get_large_coverart(track.link.uri)
+            if image is None:
+                image = get_cover_image(str(track.album.cover(2).link))
+        else:
+            image = get_cover_image(str(track.album.cover(2).link))
 
         def tag_to_ascii(_str, _str_ascii):
             return _str if args.ascii_path_only else _str_ascii
@@ -141,45 +139,6 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
                 audio.tags.version = (2, 3, 0)
             else:
                 audio.save()
-
-        # aac is not well supported
-        def set_id3_tags_raw(audio, audio_file):
-            try:
-                id3_dict = id3.ID3(audio_file)
-            except id3.ID3NoHeaderError:
-                id3_dict = id3.ID3()
-
-            def embed_image(data):
-                id3_dict.add(id3.APIC(encoding=3, mime='image/jpeg', type=3, desc='Front Cover', data=data))
-
-            save_cover_image(embed_image)
-
-            if album is not None:
-                id3_dict.add(id3.TALB(text=[tag_to_ascii(track.album.name, album)], encoding=3))
-            id3_dict.add(id3.TIT2(text=[tag_to_ascii(track.name, title)], encoding=3))
-            id3_dict.add(id3.TPE1(text=[tag_to_ascii(artists, artists_ascii)], encoding=3))
-            if album_artist is not None:
-                id3_dict.add(id3.TPE2(text=[tag_to_ascii(track.album.artist.name, album_artist)], encoding=3))
-            id3_dict.add(id3.TDRC(text=[str(track.album.year)], encoding=3))
-            id3_dict.add(id3.TPOS(text=[idx_of_total_str(track.disc, num_discs)], encoding=3))
-            id3_dict.add(id3.TRCK(text=[idx_of_total_str(track.index, num_tracks)], encoding=3))
-            if args.comment is not None:
-                id3_dict.add(id3.COMM(text=[tag_to_ascii(comment, comment_ascii)], encoding=3))
-            if args.grouping is not None:
-                audio.tags.add(id3.TIT1(text=[tag_to_ascii(grouping, grouping_ascii)], encoding=3))
-            if genres is not None and genres:
-                tcon_tag = id3.TCON(encoding=3)
-                tcon_tag.genres = genres if args.ascii_path_only \
-                    else genres_ascii
-                id3_dict.add(tcon_tag)
-
-            if args.id3_v23:
-                id3_dict.update_to_v23()
-                id3_dict.save(audio_file, v2_version=3, v23_sep='/')
-                id3_dict.version = (2, 3, 0)
-            else:
-                id3_dict.save(audio_file)
-            audio.tags = id3_dict
 
         def set_vorbis_comments(audio):
             # add Vorbis comment block if it doesn't exist
@@ -257,35 +216,6 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
 
             audio.save()
 
-        def set_m4a_tags(audio):
-            # add M4A tags if it doesn't exist
-            audio.add_tags()
-
-            def embed_image(data):
-                audio.tags[str("covr")] = m4a.M4ACover(data)
-
-            save_cover_image(embed_image)
-
-            if album is not None:
-                audio.tags[b"\xa9alb"] = tag_to_ascii(track.album.name, album)
-            audio[b"\xa9nam"] = tag_to_ascii(track.name, title)
-            audio.tags[b"\xa9ART"] = tag_to_ascii(artists, artists_ascii)
-            if album_artist is not None:
-                audio.tags[str("aART")] = tag_to_ascii(track.album.artist.name, album_artist)
-            audio.tags[b"\xa9day"] = str(track.album.year)
-            audio.tags[str("disk")] = (track.disc, num_discs)
-            audio.tags[str("trkn")] = (track.index, num_tracks)
-            if args.comment is not None:
-                audio.tags[b"\xa9cmt"] = tag_to_ascii(comment, comment_ascii)
-            if args.grouping is not None:
-                audio.tags[b"\xa9grp"] = tag_to_ascii(grouping, grouping_ascii)
-
-            if genres is not None and genres:
-                _genres = genres if args.ascii_path_only else genres_ascii
-                audio.tags[b"\xa9gen"] = ", ".join(_genres)
-
-            audio.save()
-
         if args.output_type == "flac":
             audio = flac.FLAC(audio_file)
             set_vorbis_comments(audio)
@@ -298,9 +228,6 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
         elif args.output_type == "opus":
             audio = oggopus.OggOpus(audio_file)
             set_vorbis_comments(audio)
-        elif args.output_type == "aac":
-            audio = aac.AAC(audio_file)
-            set_id3_tags_raw(audio, audio_file)
         elif args.output_type == "m4a":
             audio = mp4.MP4(audio_file)
             set_mp4_tags(audio)
@@ -383,12 +310,6 @@ def set_metadata_tags(args, audio_file, idx, track, ripper):
         elif args.output_type == "mp3":
             print(Fore.YELLOW + "  Format:\t" + Fore.RESET + "MPEG" + str(audio.info.version) + ", Layer " + ("I" * audio.info.layer))
             print(Fore.YELLOW + "  Quality:\t" + Fore.RESET + bit_rate_str(audio.info.bitrate / 1000) + " @ " + str(audio.info.sample_rate) + " Hz - " + mode_str(audio.info.mode))
-            id3_version = "v%d.%d" % (audio.tags.version[0], audio.tags.version[1])
-            print(Fore.YELLOW + "  ID3:\t\t" + Fore.RESET + id3_version + " - " + str(len(audio.tags.values())) + " frames")
-
-        elif args.output_type == "aac":
-            print(Fore.YELLOW + "  Format:\t" + Fore.RESET + "Advanced Audio Coding")
-            print(Fore.YELLOW + "  Quality:\t" + Fore.RESET + bit_rate_str(audio.info.bitrate / 1000) + " @ " + str(audio.info.sample_rate) + " Hz - " + channel_str(audio.info.channels))
             id3_version = "v%d.%d" % (audio.tags.version[0], audio.tags.version[1])
             print(Fore.YELLOW + "  ID3:\t\t" + Fore.RESET + id3_version + " - " + str(len(audio.tags.values())) + " frames")
 

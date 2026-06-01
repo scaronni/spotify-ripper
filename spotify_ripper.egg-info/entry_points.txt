@@ -1,3 +1,0 @@
-[console_scripts]
-spotify-ripper = spotify_ripper.main:main
-

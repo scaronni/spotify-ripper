@@ -1,6 +1,5 @@
-pyspotify>=2.0.5
+librespot @ git+https://github.com/justin025/librespot-python.git
 colorama>=0.3.3
 mutagen>=1.30
 requests>=2.13.0
 schedule>=0.3.1
-spotipy>=2.12

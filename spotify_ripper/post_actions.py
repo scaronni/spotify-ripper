@@ -5,14 +5,10 @@ from __future__ import unicode_literals
 from colorama import Fore
 from spotify_ripper.utils import *
 import os
-import time
-import spotify
 import codecs
 import shutil
-from spotify_ripper.spotipy_integration import remove_all_from_playlist
 
 class PostActions(object):
-    tracks_to_remove = []
     fail_log_file = None
     success_tracks = []
     failure_tracks = []
@@ -61,12 +57,12 @@ class PostActions(object):
         def log_tracks(tracks):
             for track in tracks:
                 try:
-                    track.load(self.args.timeout)
+                    track.load()
                     if (len(track.artists) > 0 and track.artists[0].name is not None and track.name is not None):
                         print_with_bullet(track.artists[0].name + " - " + track.name)
                     else:
                         print_with_bullet(track.link.uri)
-                except spotify.Error as e:
+                except Exception:
                     print_with_bullet(track.link.uri)
             print("")
 
@@ -77,69 +73,6 @@ class PostActions(object):
             print(Fore.RED + "\nFailure Summary (" + str(len(self.failure_tracks)) + ")\n" + ("-" * 79) + Fore.RESET)
             log_tracks(self.failure_tracks)
 
-    def get_chart_name(self, chart):
-        region_mapping = {
-            "global": "Global",
-            "us": "United States",
-            "gb": "United Kingdom",
-            "ad": "Andorra",
-            "ar": "Argentina",
-            "at": "Austria",
-            "au": "Australia",
-            "be": "Belgium",
-            "bg": "Bulgaria",
-            "bo": "Bolivia",
-            "br": "Brazil",
-            "ca": "Canada",
-            "ch": "Switzerland",
-            "cl": "Chile",
-            "co": "Colombia",
-            "cr": "Costa Rica",
-            "cy": "Cyprus",
-            "cz": "Czech Republic",
-            "de": "Germany",
-            "dk": "Denmark",
-            "do": "Dominican Republic",
-            "ec": "Ecuador",
-            "ee": "Estonia",
-            "es": "Spain",
-            "fi": "Finland",
-            "fr": "France",
-            "gr": "Greece",
-            "gt": "Guatemala",
-            "hk": "Hong Kong",
-            "hn": "Honduras",
-            "hu": "Hungary",
-            "id": "Indonesia",
-            "ie": "Ireland",
-            "is": "Iceland",
-            "it": "Italy",
-            "lt": "Lithuania",
-            "lu": "Luxembourg",
-            "lv": "Latvia",
-            "mt": "Malta",
-            "mx": "Mexico",
-            "my": "Malaysia",
-            "ni": "Nicaragua",
-            "nl": "Netherlands",
-            "no": "Norway",
-            "nz": "New Zealand",
-            "pa": "Panama",
-            "pe": "Peru",
-            "ph": "Philippines",
-            "pl": "Poland",
-            "pt": "Portugal",
-            "py": "Paraguay",
-            "se": "Sweden",
-            "sg": "Singapore",
-            "sk": "Slovakia",
-            "sv": "El Salvador",
-            "tr": "Turkey",
-            "tw": "Taiwan",
-            "uy": "Uruguay"
-        }
-        return (chart["time_window"].title() + " " + region_mapping.get(chart["region"], "") + " " + ("Top" if chart["metrics"] == "regional" else "Viral") + " " + ("200" if chart["metrics"] == "regional" else "50"))
-
     def get_playlist_name(self):
         ripper = self.ripper
 
@@ -147,8 +80,6 @@ class PostActions(object):
             return ripper.current_playlist.name
         elif ripper.current_album is not None:
             return (ripper.current_album.artist.name + " - " + ripper.current_album.name)
-        elif ripper.current_chart is not None:
-            return self.get_chart_name(ripper.current_chart)
         else:
             return None
 
@@ -168,7 +99,7 @@ class PostActions(object):
             encoding = "ascii" if args.ascii else "utf-8"
             with codecs.open(enc_str(playlist_path), 'w', encoding) as playlist:
                 for idx, track in enumerate(tracks):
-                    track.load(args.timeout)
+                    track.load()
                     if track.is_local:
                         continue
                     _file = ripper.format_track_path(idx, track)
@@ -191,7 +122,7 @@ class PostActions(object):
                 # to get an accurate track count
                 track_paths = []
                 for idx, track in enumerate(tracks):
-                    track.load(args.timeout)
+                    track.load()
                     if track.is_local:
                         continue
                     _file = ripper.format_track_path(idx, track)
@@ -203,7 +134,7 @@ class PostActions(object):
                 playlist.write('\t<head>\n')
                 playlist.write('\t\t<meta name="Generator" ' 'content="Microsoft Windows Media Player -- ' '12.0.7601.18526"/>\n')
                 playlist.write('\t\t<meta name="ItemCount" content="' + str(len(track_paths)) + '"/>\n')
-                playlist.write('\t\t<author>' + ripper.session.user.display_name + '</author>\n')
+                playlist.write('\t\t<author>' + ripper.user.display_name + '</author>\n')
                 playlist.write('\t\t<title>' + name + '</title>\n')
                 playlist.write('\t</head>\n')
                 playlist.write('\t<body>\n')
@@ -235,16 +166,11 @@ class PostActions(object):
             if self.args.plus_pcm:
                 delete_extra_file("pcm")
 
-    def remove_tracks_from_playlist(self):
-        if self.args.remove_from_playlist:
-            ripper = self.ripper
-            remove_all_from_playlist(ripper.session.user.canonical_name, ripper.playlist_uri)
-            print("Emptied playlist!")
-
-    def remove_offline_cache(self):
-        ripper = self.ripper
-
-        if self.args.remove_offline_cache:
-            storage_path = os.path.join(base_dir(), "Storage")
-            if path_exists(storage_path):
-                shutil.rmtree(enc_str(storage_path))
+    def cleanup_offline_cache(self):
+        # delete librespot's offline audio cache after a successful rip unless
+        # the user asked to keep it
+        if self.args.keep_offline_cache:
+            return
+        cache_path = cache_dir()
+        if path_exists(cache_path):
+            shutil.rmtree(enc_str(cache_path), ignore_errors=True)

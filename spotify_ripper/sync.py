@@ -2,13 +2,12 @@
 
 from __future__ import unicode_literals
 
-from colorama import Fore, Style
+from colorama import Fore
 from spotify_ripper.utils import *
 import os
 import json
 import codecs
-import copy
-import spotify
+from spotify_ripper.librespot_session import SpotifyError
 
 
 class Sync(object):
@@ -18,11 +17,9 @@ class Sync(object):
         self.ripper = ripper
 
     def sync_lib_path(self, playlist):
-        args = self.args
-
-        # get playlist_id
-        uri_tokens = playlist.link.uri.split(':')
-        if len(uri_tokens) != 5:
+        # get playlist_id (last token of the spotify:playlist:ID uri)
+        playlist_id = playlist.link.uri.split(':')[-1]
+        if not playlist_id:
             return None
 
         # lib path
@@ -31,7 +28,7 @@ class Sync(object):
         if not path_exists(lib_path):
             os.makedirs(enc_str(lib_path))
 
-        return os.path.join(lib_path, uri_tokens[4] + ".json")
+        return os.path.join(lib_path, playlist_id + ".json")
 
     def save_sync_library(self, playlist, lib):
         args = self.args
@@ -53,8 +50,7 @@ class Sync(object):
             return {}
 
     def sync_playlist(self, playlist):
-        args = self.args
-        playlist.load(args.timeout)
+        playlist.load()
         lib = self.load_sync_library(playlist)
         new_lib = {}
 
@@ -63,14 +59,14 @@ class Sync(object):
         # create new lib
         for idx, track in enumerate(playlist.tracks):
             try:
-                track.load(args.timeout)
+                track.load()
                 if track.availability != 1 or track.is_local:
                     continue
 
                 audio_file = self.ripper.format_track_path(idx, track)
                 new_lib[track.link.uri] = audio_file
 
-            except spotify.Error as e:
+            except SpotifyError:
                 continue
 
         # check what items are missing or renamed in the new_lib vs lib

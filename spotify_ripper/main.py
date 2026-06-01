@@ -8,9 +8,8 @@ from spotify_ripper.ripper import Ripper
 from spotify_ripper.utils import *
 import argparse
 import codecs
-import configparser
+import json
 import os
-import pkg_resources
 import schedule
 import select
 import signal
@@ -19,85 +18,104 @@ import termios
 import tty
 
 
-def load_config(defaults):
-    config_file = os.path.join(settings_dir(), "config.ini")
-    if os.path.exists(config_file):
+# The default configuration.  Keys match argparse option destinations (the
+# long option name with dashes turned into underscores).  This is written to
+# config.json on first run and used as the baseline that the user's config.json
+# is merged on top of.
+DEFAULT_CONFIG = {
+    # output location and file naming
+    "directory": "~/Music",
+    "format": None,
+    "format_case": None,
+    "ascii": False,
+    "ascii_path_only": False,
+    "normalized_ascii": False,
+    "windows_safe": False,
+    "overwrite": False,
+    "replace": None,
+    # Spotify stream quality and encoder settings
+    "quality": "320",
+    "cbr": False,
+    "bitrate": "320",
+    "vbr": "0",
+    "comp": "10",
+    "stereo_mode": None,
+    # metadata
+    "all_artists": False,
+    "genres": None,
+    "id3_v23": False,
+    "large_cover_art": False,
+    "comment": None,
+    "grouping": None,
+    "cover_file": None,
+    "cover_file_and_embed": None,
+    # playlists
+    "playlist_sync": False,
+    "playlist_m3u": False,
+    "playlist_wpl": False,
+    # artist filtering
+    "artist_album_type": None,
+    # misc
+    "partial_check": "weak",
+    "plus_pcm": False,
+    "plus_wav": False,
+    "keep_offline_cache": False,
+    "fail_log": None,
+}
+
+
+def config_path():
+    return os.path.join(settings_dir(), "config.json")
+
+
+def write_json(path, data):
+    """Write ``data`` to ``path`` as pretty-formatted JSON."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, sort_keys=True, ensure_ascii=False)
+        f.write("\n")
+
+
+def load_config():
+    """Return the default configuration merged with the user's config.json.
+
+    On first run (no config.json yet) the default configuration is written out
+    so the user has a documented, editable starting point."""
+    path = config_path()
+    config = dict(DEFAULT_CONFIG)
+
+    if os.path.exists(path):
         try:
-            config = configparser.ConfigParser()
-            config.read(config_file)
-            if not config.has_section("main"):
-                return defaults
-            config_items = dict(config.items("main"))
-
-            to_array_options = ["replace"]
-
-            # coerce boolean and none types
-            config_items_new = {}
-            for _key in config_items:
-                item = config_items[_key]
-
-                u_key = _key.replace("-", "_")
-                if item == 'True':
-                    item = True
-                elif item == 'False':
-                    item = False
-                elif item == 'None':
-                    item = None
-                else:
-                    item = item.strip("'\"")
-
-                # certain options need to be in array (nargs=+)
-                if u_key in to_array_options:
-                    item = [item]
-
-                config_items_new[u_key] = item
-
-            # overwrite any existing defaults
-            defaults.update(config_items_new)
-        except configparser.Error as e:
-            print("\nError parsing config file: " + config_file)
+            with open(path, "r", encoding="utf-8") as f:
+                user_config = json.load(f)
+            if isinstance(user_config, dict):
+                config.update(user_config)
+        except (ValueError, IOError) as e:
+            print("\nError parsing config file: " + path)
+            print(str(e))
+    else:
+        try:
+            write_json(path, DEFAULT_CONFIG)
+        except IOError as e:
+            print("\nCould not write default config file: " + path)
             print(str(e))
 
-    return defaults
+    return config
 
 def main():
-    prog_version = pkg_resources.require("spotify-ripper")[0].version
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        try:
+            prog_version = version("spotify-ripper")
+        except PackageNotFoundError:
+            prog_version = "unknown"
+    except ImportError:
+        prog_version = "unknown"
 
-    # load config file, overwriting any defaults
-    defaults = {
-        "bitrate": "320",
-        "quality": "320",
-        "comp": "10",
-        "vbr": "0",
-        "partial_check": "weak",
-    }
-    defaults = load_config(defaults)
-
-    spotipy_envs = [
-        "SPOTIPY_CLIENT_ID",
-        "SPOTIPY_CLIENT_SECRET",
-        "SPOTIPY_REDIRECT_URI"
-    ]
-
-    for spotipy_env in spotipy_envs:
-        if spotipy_env not in os.environ:
-            value = defaults.get(spotipy_env.lower())
-            if value:
-                os.environ[spotipy_env] = value
+    # load config (defaults merged with ~/.config/spotify-ripper/config.json)
+    defaults = load_config()
 
     parser = argparse.ArgumentParser(prog='spotify-ripper', description='Rips Spotify URIs to media files with tags and album covers')
-
-    # create group to prevent user from using both the -l and -u option
-    is_user_set = defaults.get('user') is not None
-    is_last_set = defaults.get('last') is True
-    if is_user_set or is_last_set:
-        if is_user_set and is_last_set:
-            print("spotify-ripper: error: one of the arguments -u/--user " "-l/--last is required")
-            sys.exit(1)
-        else:
-            group = parser.add_mutually_exclusive_group(required=False)
-    else:
-        group = parser.add_mutually_exclusive_group(required=True)
 
     encoding_group = parser.add_mutually_exclusive_group(required=False)
 
@@ -105,16 +123,17 @@ def main():
     parser.set_defaults(**defaults)
 
     # Positional arguments
-    parser.add_argument('uri', nargs="+", help='One or more Spotify URI(s) (either URI, a file of URIs or a search query)')
+    parser.add_argument('uri', nargs="*", help='One or more Spotify URI(s) (either a URI or a file of URIs)')
+
+    # Login / session
+    parser.add_argument('--login', dest='do_login', action='store_true', help='Pair with Spotify over Zeroconf (select "spotify-ripper" in the device list of the official Spotify app), saving reusable credentials for later runs')
 
     # Optional arguments
     parser.add_argument('-a', '--ascii', action='store_true', help='Convert the file name and the metadata tags to ASCII encoding [Default=utf-8]')
-    encoding_group.add_argument('--aac', action='store_true', help='Rip songs to AAC format with FreeAAC instead of MP3')
     encoding_group.add_argument('--aiff', action='store_true', help='Rip songs to lossless AIFF encoding instead of MP3')
     encoding_group.add_argument('--alac', action='store_true', help='Rip songs to Apple Lossless format instead of MP3')
     parser.add_argument('--all-artists', action='store_true', help='Store all artists, rather than just the main artist, in the track\'s metadata tag')
-    parser.add_argument('--artist-album-type', help='Only load albums of specified types when passing a Spotify artist URI [Default=album,single,ep,compilation,appears_on]')
-    parser.add_argument('--artist-album-market', help='Only load albums with the specified ISO2 country code when passing a Spotify artist URI. You may get duplicate albums if not set. [Default=any]')
+    parser.add_argument('--artist-album-type', help='Comma-separated album types to include when ripping an artist URI: album, single, compilation, appears_on [Default=album,single,compilation]')
     parser.add_argument('-A', '--ascii-path-only', action='store_true', help='Convert the file name (but not the metadata tags) to ASCII encoding [Default=utf-8]')
     parser.add_argument('-b', '--bitrate', help='CBR bitrate [Default=320]')
     parser.add_argument('-c', '--cbr', action='store_true', help='CBR encoding [Default=VBR]')
@@ -122,50 +141,48 @@ def main():
     parser.add_argument('--comment', help='Set comment metadata tag to all songs. Can include same tags as --format.')
     parser.add_argument('--cover-file', help='Save album cover image to file name (e.g "cover.jpg") [Default=embed]')
     parser.add_argument('--cover-file-and-embed', metavar="COVER_FILE", help='Same as --cover-file but embeds the cover image too')
-    parser.add_argument('-d', '--directory', help='Base directory where ripped MP3s are saved [Default=cwd]')
+    parser.add_argument('-d', '--directory', help='Base directory where ripped songs are saved [Default=~/Music]')
     parser.add_argument('--fail-log', help="Logs the list of track URIs that failed to rip")
     encoding_group.add_argument('--flac', action='store_true', help='Rip songs to lossless FLAC encoding instead of MP3')
     parser.add_argument('-f', '--format', help='Save songs using this path and filename structure (see README)')
     parser.add_argument('--format-case', choices=['upper', 'lower', 'capitalize'], help='Convert all words of the file name to upper-case, lower-case, or capitalized')
     parser.add_argument('--flat', action='store_true', help='Save all songs to a single directory (overrides --format option)')
     parser.add_argument('--flat-with-index', action='store_true', help='Similar to --flat [-f] but includes the playlist index at the start of the song file')
-    parser.add_argument('-g', '--genres', choices=['artist', 'album'], help='Attempt to retrieve genre information from Spotify\'s Web API [Default=skip]')
+    parser.add_argument('-g', '--genres', choices=['artist', 'album'], help='Attempt to retrieve genre information from Spotify [Default=skip]')
     parser.add_argument('--grouping', help='Set grouping metadata tag to all songs. Can include same tags as --format.')
     encoding_group.add_argument('--id3-v23', action='store_true', help='Store ID3 tags using version v2.3 [Default=v2.4]')
-    parser.add_argument('--large-cover-art', action='store_true', help='Attempt to retrieve 640x640 cover art from Spotify\'s Web API [Default=300x300]')
-    group.add_argument('-l', '--last', action='store_true', help='Use last login credentials')
+    parser.add_argument('--large-cover-art', action='store_true', help='Attempt to retrieve larger cover art from Spotify [Default=300x300]')
     parser.add_argument('-L', '--log', help='Log in a log-friendly format to a file (use - to log to stdout)')
     encoding_group.add_argument('--pcm', action='store_true', help='Saves a .pcm file with the raw PCM data instead of MP3')
     encoding_group.add_argument('--mp4', action='store_true', help='Rip songs to MP4/M4A format with Fraunhofer FDK AAC codec instead of MP3')
-    parser.add_argument('--normalize', action='store_true', help='Normalize volume levels of tracks')
     parser.add_argument('-na', '--normalized-ascii', action='store_true', help='Convert the file name to normalized ASCII with unicodedata.normalize (NFKD)')
     parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite existing MP3 files [Default=skip]')
     encoding_group.add_argument('--opus', action='store_true', help='Rip songs to Opus encoding instead of MP3')
     parser.add_argument('--partial-check', choices=['none', 'weak', 'strict'], help='Check for and overwrite partially ripped files. "weak" will err on the side of not re-ripping the file if it is unsure, whereas "strict" will re-rip the file [Default=weak]')
-    parser.add_argument('-p', '--password', help='Spotify password [Default=ask interactively]')
-    parser.add_argument('--play-token-resume', metavar="RESUME_AFTER", help='If the \'play token\' is lost to a different device using the same Spotify account, the script will wait a specified amount of time before restarting. This argument takes the same values as --resume-after [Default=abort]')
     parser.add_argument('--playlist-m3u', action='store_true', help='create a m3u file when ripping a playlist')
     parser.add_argument('--playlist-wpl', action='store_true', help='create a wpl file when ripping a playlist')
     parser.add_argument('--playlist-sync', action='store_true', help='Sync playlist songs (rename and remove old songs)')
     parser.add_argument('--plus-pcm', action='store_true', help='Saves a .pcm file in addition to the encoded file (e.g. mp3)')
     parser.add_argument('--plus-wav', action='store_true', help='Saves a .wav file in addition to the encoded file (e.g. mp3)')
     parser.add_argument('-q', '--vbr', help='VBR quality setting or target bitrate for Opus [Default=0]')
-    parser.add_argument('-Q', '--quality', choices=['160', '320', '96'], help='Spotify stream bitrate preference [Default=320]')
-    parser.add_argument('--remove-offline-cache', action='store_true', help='Remove libspotify\'s offline cache directory after the rip is complete to save disk space')
+    parser.add_argument('-Q', '--quality', choices=['160', '320', '96'], help='Spotify stream bitrate preference (320 requires Premium) [Default=320]')
+    parser.add_argument('--keep-offline-cache', action='store_true', help='Keep librespot\'s offline audio cache instead of deleting it after a successful rip [Default=delete]')
     parser.add_argument('--resume-after', help='Resumes script after a certain amount of time has passed after stopping (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to start after (e.g 03:30, 16:15). Requires --stop-after option to be set')
-    parser.add_argument('-R', '--replace', nargs="+", required=False, help='pattern to replace the output filename separated by "/". The following example replaces all spaces with "_" and all "-" with ".": spotify-ripper --replace " /_" "\-/." uri')
+    parser.add_argument('-R', '--replace', nargs="+", required=False, help='pattern to replace the output filename separated by "/". The following example replaces all spaces with "_" and all "-" with ".": spotify-ripper --replace " /_" "\\-/." uri')
     parser.add_argument('-s', '--strip-colors', action='store_true', help='Strip coloring from output [Default=colors]')
     parser.add_argument('--stereo-mode', choices=['j', 's', 'f', 'd', 'm', 'l', 'r'], help='Advanced stereo settings for Lame MP3 encoder only')
     parser.add_argument('--stop-after', help='Stops script after a certain amount of time has passed (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to stop after (e.g 03:30, 16:15)')
-    parser.add_argument('--timeout', type=int, help='Override the PySpotify timeout value in seconds (Default=10 seconds)')
-    group.add_argument('-u', '--user', help='Spotify username')
     parser.add_argument('-V', '--version', action='version', version=prog_version)
     encoding_group.add_argument('--wav', action='store_true', help='Rip songs to uncompressed WAV file instead of MP3')
     parser.add_argument('--windows-safe', action='store_true', help='Make filename safe for Windows file system (truncate filename to 255 characters)')
-    encoding_group.add_argument('--vorbis', action='store_true', help='Rip songs to Ogg Vorbis encoding instead of MP3')
-    parser.add_argument('-r', '--remove-from-playlist', action='store_true', help='Delete tracks from playlist after successful ripping [Default=no]')
+    encoding_group.add_argument('--vorbis', action='store_true', help='Rip songs to native Ogg Vorbis (copied straight from Spotify, no re-encode)')
 
     args = parser.parse_args()
+
+    if not args.do_login and not args.uri:
+        parser.error("at least one Spotify URI is required (or use --login to "
+                     "pair with the Spotify app)")
+
     init_util_globals(args)
 
     # kind of a hack to get colorama stripping to work when outputting
@@ -207,10 +224,6 @@ def main():
         args.output_type = "opus"
         if args.vbr == "0":
             args.vbr = "320"
-    elif args.aac:
-        args.output_type = "aac"
-        if args.vbr == "0":
-            args.vbr = "500"
     elif args.mp4:
         args.output_type = "m4a"
         if args.vbr == "0":
@@ -222,12 +235,13 @@ def main():
     else:
         args.output_type = "mp3"
 
-    # check that encoder tool is available
+    # check that the required encoder tool is available.  The native Ogg
+    # Vorbis output is a straight copy of the Spotify stream, so it needs no
+    # encoder; every other format is produced by decoding that stream to PCM
+    # with ffmpeg and (for compressed formats) piping it into an encoder.
     encoders = {
         "flac": ("flac", "flac"),
         "aiff": ("sox", "sox"),
-        "aac": ("faac", "faac"),
-        "ogg": ("oggenc", "vorbis-tools"),
         "opus": ("opusenc", "opus-tools"),
         "mp3": ("lame", "lame"),
         "m4a": ("fdkaac", "aac-enc"),
@@ -238,6 +252,13 @@ def main():
         if which(encoder) is None:
             print(Fore.RED + "Missing dependency '" + encoder + "'. Please install '" + encoders[args.output_type][1] + "'." + Fore.RESET)
             sys.exit(1)
+
+    # ffmpeg is needed to decode the Ogg Vorbis stream for anything other than
+    # the native Ogg Vorbis copy
+    needs_ffmpeg = args.output_type != "ogg" or args.plus_wav or args.plus_pcm
+    if needs_ffmpeg and which("ffmpeg") is None:
+        print(Fore.RED + "Missing dependency 'ffmpeg'. Please install 'ffmpeg'." + Fore.RESET)
+        sys.exit(1)
 
     # format string
     if args.flat:
@@ -263,15 +284,13 @@ def main():
             elif args.output_type == "alac.m4a":
                 return "Apple Lossless (ALAC)"
             elif args.output_type == "ogg":
-                codec = "Ogg Vorbis"
+                return "Ogg Vorbis (native, copied from Spotify)"
             elif args.output_type == "opus":
                 codec = "Opus"
             elif args.output_type == "mp3":
                 codec = "MP3"
             elif args.output_type == "m4a":
                 codec = "MPEG4 AAC"
-            elif args.output_type == "aac":
-                codec = "AAC"
             else:
                 codec = "Unknown"
 
@@ -299,10 +318,6 @@ def main():
     if args.resume_after is not None and \
             parse_time_str(args.resume_after) is None:
         print(Fore.RED + "--resume-after option is not valid" + Fore.RESET)
-        sys.exit(1)
-    if args.play_token_resume is not None and \
-            parse_time_str(args.play_token_resume) is None:
-        print(Fore.RED + "--play_token_resume option is not valid" + Fore.RESET)
         sys.exit(1)
 
     print(Fore.YELLOW + "  Unicode support:\t" + Fore.RESET + unicode_support_str())
@@ -335,13 +350,11 @@ def main():
         if ripper.ripping.is_set():
             ripper.skip.set()
 
-    # check if we were passed a file name or search
+    # check if we were passed a file name
     def check_uri_args():
         if len(args.uri) == 1 and path_exists(args.uri[0]):
             encoding = "ascii" if args.ascii else "utf-8"
             args.uri = [line.strip() for line in codecs.open(enc_str(args.uri[0]), 'r', encoding) if not line.strip().startswith("#") and len(line.strip()) > 0]
-        elif len(args.uri) == 1 and not args.uri[0].startswith("spotify:"):
-            args.uri = [list(ripper.search_query(args.uri[0]))]
 
     # login and uri_parse on main thread to catch any KeyboardInterrupt
     try:

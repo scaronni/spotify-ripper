@@ -8,7 +8,7 @@ import os
 import sys
 import time
 import schedule
-import spotify
+from spotify_ripper.librespot_session import SpotifyError
 
 try:
     from fcntl import ioctl
@@ -65,7 +65,7 @@ class Progress(object):
                 track = pair[0]
                 audio_file = pair[1]
 
-                track.load(self.args.timeout)
+                track.load()
                 # check if we should skip track
                 if track.availability != 1 or track.is_local:
                     self.skipped_tracks += 1
@@ -81,7 +81,7 @@ class Progress(object):
                 self.total_duration += track.duration
                 file_size = calc_file_size(track)
                 self.total_size += file_size
-            except spotify.Error as e:
+            except SpotifyError:
                 continue
 
     def eta_calc(self):

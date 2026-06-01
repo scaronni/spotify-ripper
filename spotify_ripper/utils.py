@@ -2,11 +2,10 @@
 
 from __future__ import unicode_literals, print_function
 
-from colorama import Fore, Style
+from colorama import Fore
 from datetime import datetime, timedelta
 import mutagen
 import os
-import sys
 import errno
 import re
 import math
@@ -87,12 +86,19 @@ def rm_file(file_name):
             print(str(e))
 
 def settings_dir():
-    return norm_path(os.path.join(os.path.expanduser("~"), ".spotify-ripper"))
+    config_home = os.environ.get("XDG_CONFIG_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".config")
+    return norm_path(os.path.join(config_home, "spotify-ripper"))
+
+def cache_dir():
+    cache_home = os.environ.get("XDG_CACHE_HOME") or \
+        os.path.join(os.path.expanduser("~"), ".cache")
+    return norm_path(os.path.join(cache_home, "spotify-ripper"))
 
 def base_dir():
     args = get_args()
-    return norm_path(args.directory) if args.directory is not None \
-        else os.getcwd()
+    directory = args.directory or os.path.join("~", "Music")
+    return norm_path(os.path.expanduser(directory))
 
 def calc_file_size(track):
     return (int(get_args().quality) / 8) * track.duration
@@ -147,13 +153,13 @@ def format_track_string(ripper, format_string, idx, track):
 
     # this fixes the track.disc
     if not track.is_loaded:
-        track.load(args.timeout)
+        track.load()
     if not track.album.is_loaded:
-        track.album.load(args.timeout)
+        track.album.load()
     if current_album is None:
         current_album = track.album
     album_browser = track.album.browse()
-    album_browser.load(args.timeout)
+    album_browser.load()
 
     track_artist = to_ascii(escape_filename_part(track.artists[0].name))
     track_artists = to_ascii(escape_filename_part(", ".join([artist.name for artist in track.artists])))
@@ -198,13 +204,13 @@ def format_track_string(ripper, format_string, idx, track):
     else:
         playlist_name = "No Playlist"
         playlist_owner = "No Playlist Owner"
-    user = ripper.session.user.display_name
+    user = ripper.user.display_name
 
     # load copyright only if needed
     copyright = label = ""
     if (format_string.find("{copyright}") >= 0 or format_string.find("{label}") >= 0):
         album_browser = track.album.browse()
-        album_browser.load(args.timeout)
+        album_browser.load()
         if len(album_browser.copyrights) > 0:
             copyright = escape_filename_part(album_browser.copyrights[0])
             label = re.sub(r"^[0-9]+\s+", "", copyright)
