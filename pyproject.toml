@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spotify-ripper"
+version = "3.0.2"
+description = "A small ripper for Spotify that rips Spotify URIs to media files"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.8"
+authors = [{ name = "Simone Caronni", email = "negativo17@gmail.com" }]
+keywords = ["spotify", "ripper", "mp3", "ogg", "vorbis", "flac", "opus", "aac", "mp4", "m4a"]
+classifiers = [
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "librespot @ git+https://github.com/justin025/librespot-python.git",
+    "colorama>=0.3.3",
+    "mutagen>=1.30",
+    "requests>=2.13.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/scaronni/spotify-ripper"
+
+[project.scripts]
+spotify-ripper = "spotify_ripper.main:main"
+
+[tool.setuptools]
+packages = ["spotify_ripper"]
