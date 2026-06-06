@@ -255,7 +255,7 @@ A **Spotify Premium** account (required for 320 kbps; free accounts get 160 kbps
 
 Python libraries (installed automatically by pip):
 
--  [librespot](https://github.com/justin025/librespot-python)
+-  [librespot](https://github.com/kokarare1212/librespot-python)
 -  [colorama](https://pypi.python.org/pypi/colorama)
 -  [mutagen](https://mutagen.readthedocs.org/en/latest/)
 -  [requests](https://pypi.org/project/requests/)

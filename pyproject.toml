@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spotify-ripper"
-version = "3.0.2"
+version = "3.0.3"
 description = "A small ripper for Spotify that rips Spotify URIs to media files"
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "librespot @ git+https://github.com/justin025/librespot-python.git",
+    "librespot>=0.0.10",
     "colorama>=0.3.3",
     "mutagen>=1.30",
     "requests>=2.13.0",
