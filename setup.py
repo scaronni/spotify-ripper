@@ -43,7 +43,6 @@ setup(
         'colorama>=0.3.3',
         'mutagen>=1.30',
         'requests>=2.13.0',
-        'schedule>=0.3.1',
     ],
 
     # Metadata

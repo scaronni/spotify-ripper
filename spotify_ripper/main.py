@@ -10,7 +10,6 @@ import argparse
 import codecs
 import json
 import os
-import schedule
 import select
 import signal
 import sys
@@ -382,7 +381,7 @@ def main():
             tty.setcbreak(sys.stdin.fileno())
 
         while ripper.is_alive():
-            schedule.run_pending()
+            ripper.progress.tick()
 
             # check if the escape button was pressed
             if not args.has_log and hasStdinData():

@@ -7,7 +7,6 @@ from spotify_ripper.utils import *
 import os
 import sys
 import time
-import schedule
 from spotify_ripper.librespot_session import SpotifyError
 
 try:
@@ -43,11 +42,22 @@ class Progress(object):
     move_cursor = False
     term_width = 120
 
+    # throttle for periodic ETA recalculation
+    _last_eta_calc = 0.0
+
     def __init__(self, args, ripper):
         self.args = args
         self.ripper = ripper
-        if not self.args.has_log:
-            schedule.every(2).seconds.do(self.eta_calc)
+
+    def tick(self):
+        """Recompute the ETA roughly every 2 seconds; called from the main
+        loop while a rip is in progress."""
+        if self.args.has_log:
+            return
+        now = time.time()
+        if now - self._last_eta_calc >= 2:
+            self._last_eta_calc = now
+            self.eta_calc()
 
     def calc_total(self, track_pairs):
         if len(track_pairs) <= 1:
