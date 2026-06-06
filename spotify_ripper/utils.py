@@ -146,6 +146,17 @@ def change_file_extension(file_name, ext):
     return os.path.splitext(file_name)[0] + "." + ext
 
 
+# width of the label column for the indented per-track fields
+LABEL_WIDTH = 14
+
+
+def format_field(indent, label, value):
+    """A '<indent><Label:>   <value>' line: yellow label padded to a fixed
+    column, value in the default color, indented to align under a track."""
+    return indent + Fore.YELLOW + (label + ":").ljust(LABEL_WIDTH) + \
+        Fore.RESET + str(value)
+
+
 def format_track_string(ripper, format_string, idx, track):
     args = get_args()
     current_album = ripper.current_album

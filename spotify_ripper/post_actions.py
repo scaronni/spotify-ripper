@@ -10,12 +10,13 @@ import shutil
 
 class PostActions(object):
     fail_log_file = None
-    success_tracks = []
-    failure_tracks = []
 
     def __init__(self, args, ripper):
         self.args = args
         self.ripper = ripper
+        self.success_tracks = []
+        self.skipped_tracks = []
+        self.failure_tracks = []
 
         # create a log file for rip failures
         if args.fail_log is not None:
@@ -27,6 +28,9 @@ class PostActions(object):
 
     def log_success(self, track):
         self.success_tracks.append(track)
+
+    def log_skipped(self, track):
+        self.skipped_tracks.append(track)
 
     def log_failure(self, track):
         self.failure_tracks.append(track)
@@ -45,33 +49,33 @@ class PostActions(object):
                 rm_file(file_name)
 
     def print_summary(self):
-        if len(self.success_tracks) + len(self.failure_tracks) <= 1:
+        ripped = len(self.success_tracks)
+        skipped = len(self.skipped_tracks)
+        failed = len(self.failure_tracks)
+        if ripped + skipped + failed == 0:
             return
 
         def print_with_bullet(_str):
-            if self.args.ascii:
-                print(" * " + _str)
-            else:
-                print(" • " + _str)
+            print((" * " if self.args.ascii else " • ") + _str)
 
-        def log_tracks(tracks):
-            for track in tracks:
+        print(Fore.GREEN + "\nSummary" + Fore.RESET)
+        print(Fore.YELLOW + "  Ripped:\t" + Fore.RESET + str(ripped))
+        print(Fore.YELLOW + "  Skipped:\t" + Fore.RESET + str(skipped))
+        print(Fore.YELLOW + "  Failed:\t" + Fore.RESET + str(failed))
+
+        # list the tracks that didn't make it, so they're easy to spot
+        if failed > 0:
+            print(Fore.RED + "\nFailed tracks:" + Fore.RESET)
+            for track in self.failure_tracks:
                 try:
                     track.load()
-                    if (len(track.artists) > 0 and track.artists[0].name is not None and track.name is not None):
-                        print_with_bullet(track.artists[0].name + " - " + track.name)
+                    if track.artists and track.artists[0].name and track.name:
+                        print_with_bullet(track.artists[0].name + " - " +
+                                          track.name)
                     else:
                         print_with_bullet(track.link.uri)
                 except Exception:
                     print_with_bullet(track.link.uri)
-            print("")
-
-        if len(self.success_tracks) > 0:
-            print(Fore.GREEN + "\nSuccess Summary (" + str(len(self.success_tracks)) + ")\n" + ("-" * 79) + Fore.RESET)
-            log_tracks(self.success_tracks)
-        if len(self.failure_tracks) > 0:
-            print(Fore.RED + "\nFailure Summary (" + str(len(self.failure_tracks)) + ")\n" + ("-" * 79) + Fore.RESET)
-            log_tracks(self.failure_tracks)
 
     def get_playlist_name(self):
         ripper = self.ripper

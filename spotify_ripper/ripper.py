@@ -153,6 +153,11 @@ class Ripper(threading.Thread):
         if self.progress.total_size > 0:
             print("Total Download Size: " + format_size(self.progress.total_size))
 
+        # pin the live status block to the bottom of the screen (only when
+        # there is something to rip and we are on an interactive terminal)
+        if self.progress.total_tracks > 0:
+            self.progress.setup()
+
         # ripping loop
         for uri_idx, uri in enumerate(uris):
             if self.abort.is_set():
@@ -170,23 +175,18 @@ class Ripper(threading.Thread):
 
             for idx, track in enumerate(tracks):
                 try:
-                    print("-" * 79)
-
                     self.check_stop_time()
                     self.skip.clear()
 
                     if self.abort.is_set():
                         break
 
-                    if self.progress.total_tracks > 1:
-                        print("[ " + str(self.progress.track_idx) + " / " +
-                              str(self.progress.total_tracks +
-                                  self.progress.skipped_tracks) + " ] ",
-                              end='')
+                    prefix = self.progress.counter_prefix()
+                    indent = self.progress.indent()
 
                     if track.availability != 1 or track.is_local:
-                        print(Fore.RED + 'Track ' + track.link.uri +
-                              ' is not available, skipping...' + Fore.RESET)
+                        print(prefix + Fore.RED + "Unavailable " +
+                              track.link.uri + Fore.RESET)
                         self.post.log_failure(track)
                         self.progress.track_idx += 1
                         continue
@@ -197,16 +197,22 @@ class Ripper(threading.Thread):
                         if is_partial(self.audio_file, track):
                             print("Overwriting partial file")
                         else:
-                            print(Fore.YELLOW + Style.BRIGHT + "Skipping " +
-                                  track.link.uri + Style.NORMAL + Fore.RESET)
-                            print(Fore.CYAN + self.audio_file + Fore.RESET)
+                            print(prefix + Fore.CYAN + Style.BRIGHT +
+                                  "Skipping " + track.link.uri + Style.NORMAL +
+                                  Fore.RESET)
+                            print(format_field(indent, "File name",
+                                               self.rel_path()))
+                            self.post.log_skipped(track)
                             self.progress.track_idx += 1
                             continue
 
+                    print(prefix + Fore.GREEN + Style.BRIGHT + "Ripping " +
+                          track.link.uri + Style.NORMAL + Fore.RESET)
+                    print(format_field(indent, "File name", self.rel_path()))
                     self.rip_track(idx, track)
 
                     if self.skip.is_set():
-                        print("\n" + Fore.YELLOW + "User skipped track..." +
+                        print(Fore.YELLOW + "User skipped track..." +
                               Fore.RESET)
                         self.abort_sinks()
                         self.post.clean_up_partial()
@@ -241,7 +247,8 @@ class Ripper(threading.Thread):
             self.post.create_playlist_m3u(tracks)
             self.post.create_playlist_wpl(tracks)
 
-        # done
+        # done -- release the pinned status block before the summary
+        self.progress.teardown()
         self.post.cleanup_offline_cache()
         self.post.end_failure_log()
         self.post.print_summary()
@@ -359,6 +366,14 @@ class Ripper(threading.Thread):
             filename = re.sub(repl[0], repl[1], filename)
         return filename
 
+    def rel_path(self):
+        """The current audio file path relative to the output directory
+        (which is already shown once in the header)."""
+        try:
+            return os.path.relpath(self.audio_file, base_dir())
+        except (ValueError, TypeError):
+            return self.audio_file
+
     # -- audio download + encode --------------------------------------------
 
     def rip_track(self, idx, track):
@@ -371,17 +386,13 @@ class Ripper(threading.Thread):
         # download phase too (prepare_rip below also sets it)
         self.ripping.set()
 
-        print(Fore.GREEN + Style.BRIGHT + "Ripping " + track.link.uri +
-              Style.NORMAL + Fore.RESET)
-        print(Fore.CYAN + self.audio_file + Fore.RESET)
-
         track_id = uri_to_id(track.link.uri)
         temp_ogg = self.audio_file + ".part.ogg"
 
         # 1) download the encrypted Ogg Vorbis stream (librespot decrypts it)
         stream = self.api.load_stream(track_id, self.quality)
         total_size = stream.input_stream.size
-        print("Track download size: " + format_size(total_size))
+        self.progress.set_download_size(total_size)
 
         downloaded = 0
         with open(enc_str(temp_ogg), 'wb') as ogg:
@@ -393,16 +404,11 @@ class Ripper(threading.Thread):
                     break
                 ogg.write(data)
                 downloaded += len(data)
-                if not args.has_log and total_size > 0:
-                    pct = int(downloaded * 100 / total_size)
-                    print_str("\r\033[2KDownloading: [%-40s] %d%%"
-                              % ("=" * (pct * 40 // 100), pct))
+                self.progress.set_download_progress(downloaded, total_size)
         try:
             stream.input_stream.stream().close()
         except Exception:
             pass
-        if not args.has_log:
-            print_str("\n")
 
         if self.abort.is_set() or self.skip.is_set():
             rm_file(temp_ogg)
@@ -524,7 +530,6 @@ class Ripper(threading.Thread):
     def finish_rip(self, track):
         self.progress.end_track()
         if self.pipe is not None:
-            print(Fore.GREEN + 'Rip complete, media information:' + Fore.RESET)
             self.pipe.flush()
             self.pipe.close()
 

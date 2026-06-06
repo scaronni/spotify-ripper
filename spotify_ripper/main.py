@@ -7,6 +7,7 @@ from colorama import init, Fore, AnsiToWin32
 from spotify_ripper.ripper import Ripper
 from spotify_ripper.utils import *
 import argparse
+import atexit
 import codecs
 import json
 import os
@@ -270,36 +271,46 @@ def main():
     # print some settings
     print(Fore.GREEN + "Spotify Ripper - v" + prog_version + Fore.RESET)
 
-    def encoding_output_str():
-        if args.output_type == "wav":
-            return "WAV, Stereo 16bit 44100Hz"
-        elif args.output_type == "pcm":
-            return "Raw Headerless PCM, Stereo 16bit 44100Hz"
-        else:
-            if args.output_type == "flac":
-                return "FLAC, Compression Level: " + args.comp
-            elif args.output_type == "aiff":
-                return "AIFF"
-            elif args.output_type == "alac.m4a":
-                return "Apple Lossless (ALAC)"
-            elif args.output_type == "ogg":
-                return "Ogg Vorbis (native, copied from Spotify)"
-            elif args.output_type == "opus":
-                codec = "Opus"
-            elif args.output_type == "mp3":
-                codec = "MP3"
-            elif args.output_type == "m4a":
-                codec = "MPEG4 AAC"
-            else:
-                codec = "Unknown"
+    def format_name():
+        names = {
+            "wav": "WAV",
+            "pcm": "Raw headerless PCM",
+            "flac": "FLAC",
+            "aiff": "AIFF",
+            "alac.m4a": "Apple Lossless (ALAC)",
+            "ogg": "Ogg Vorbis (native, copied from Spotify)",
+            "opus": "Opus",
+            "mp3": "MP3",
+            "m4a": "MPEG-4 AAC",
+        }
+        return names.get(args.output_type, args.output_type)
 
-            if args.cbr:
-                return codec + ", CBR " + args.bitrate + " kbps"
-            else:
-                return codec + ", VBR " + args.vbr
+    def quality_str():
+        if args.output_type in ("wav", "pcm"):
+            return "Stereo 16-bit 44100 Hz"
+        if args.output_type == "ogg":
+            return "copied as-is from Spotify"
+        if args.output_type == "flac":
+            return "compression level " + args.comp
+        if args.output_type == "alac.m4a":
+            return "lossless"
+        return ("CBR " + args.bitrate + " kbps") if args.cbr \
+            else ("VBR " + args.vbr)
 
-    print(Fore.YELLOW + "  Encoding output:\t" + Fore.RESET + encoding_output_str())
+    print(Fore.YELLOW + "  Format:\t\t" + Fore.RESET + format_name())
+    print(Fore.YELLOW + "  Quality:\t\t" + Fore.RESET + quality_str())
     print(Fore.YELLOW + "  Spotify bitrate:\t" + Fore.RESET + args.quality + " kbps")
+    if args.output_type in ("mp3", "aiff"):
+        print(Fore.YELLOW + "  ID3 tags:\t\t" + Fore.RESET +
+              ("v2.3" if args.id3_v23 else "v2.4"))
+    if args.output_type not in ("wav", "pcm"):
+        if args.cover_file is not None:
+            cover = "Saved to " + args.cover_file
+        elif args.cover_file_and_embed is not None:
+            cover = "Embedded + saved to " + args.cover_file_and_embed
+        else:
+            cover = "Embedded"
+        print(Fore.YELLOW + "  Cover image:\t\t" + Fore.RESET + cover)
 
     def unicode_support_str():
         if args.ascii_path_only:
@@ -329,16 +340,26 @@ def main():
     ripper = Ripper(args)
     ripper.start()
 
+    # always restore the terminal's scroll region, however we exit
+    atexit.register(ripper.progress.teardown)
+
     # try to listen for terminal resize events
     # (needs to be called on main thread)
     if not args.has_log:
         ripper.progress.handle_resize()
         signal.signal(signal.SIGWINCH, ripper.progress.handle_resize)
 
+        def _term_handler(signum, frame):
+            ripper.progress.teardown()
+            sys.exit(1)
+        signal.signal(signal.SIGTERM, _term_handler)
+        signal.signal(signal.SIGHUP, _term_handler)
+
     def hasStdinData():
         return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
 
     def abort(set_logged_in=False):
+        ripper.progress.teardown()
         ripper.abort_rip()
         if set_logged_in:
             ripper.ripper_continue.set()
@@ -381,8 +402,6 @@ def main():
             tty.setcbreak(sys.stdin.fileno())
 
         while ripper.is_alive():
-            ripper.progress.tick()
-
             # check if the escape button was pressed
             if not args.has_log and hasStdinData():
                 c = sys.stdin.read(1)
@@ -395,6 +414,7 @@ def main():
         print("\n" + Fore.RED + "Aborting..." + Fore.RESET)
         abort()
     finally:
+        ripper.progress.teardown()
         if not args.has_log and stdin_settings:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, stdin_settings)
 
