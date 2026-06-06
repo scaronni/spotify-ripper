@@ -1,0 +1,57 @@
+name: build
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      # one .pyz per Python version: the bundle contains compiled extensions
+      # (pycryptodomex, zeroconf, ...) so it only runs on its build version
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install shiv
+        run: python -m pip install --upgrade pip shiv
+
+      - name: Build .pyz
+        run: shiv -c spotify-ripper -o "spotify-ripper-py${{ matrix.python-version }}.pyz" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotify-ripper-py${{ matrix.python-version }}
+          path: spotify-ripper-py${{ matrix.python-version }}.pyz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all .pyz artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release and attach .pyz files
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.pyz
+          generate_release_notes: true

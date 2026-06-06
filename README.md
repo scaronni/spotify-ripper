@@ -226,6 +226,21 @@ If you want to redownload a playlist (for example with improved quality), you ei
 
 ## Installation
 
+### Prebuilt executable (.pyz)
+
+Each release attaches a self-contained `.pyz` (built with [shiv](https://shiv.readthedocs.io/)) that bundles all Python dependencies — so it sidesteps any system `protobuf` version conflicts. Download the file matching your Python version from the [Releases](https://github.com/scaronni/spotify-ripper/releases) page and run it:
+
+```
+$ python3 spotify-ripper-py3.13.pyz spotify:track:...
+# or make it directly executable:
+$ chmod +x spotify-ripper-py3.13.pyz && ./spotify-ripper-py3.13.pyz spotify:track:...
+```
+
+Notes:
+- Pick the `.pyz` whose version matches your Python (e.g. `py3.13` for Python 3.13) — it embeds compiled extensions tied to that version.
+- It still needs the system tools (`ffmpeg`, `lame`, …) from the Prerequisites below; only the Python dependencies are bundled.
+- To build one yourself: `pip install shiv && shiv -c spotify-ripper -o spotify-ripper.pyz .`
+
 ### Fedora
 
 1. Install the command-line tools. `ffmpeg` is required (plus `lame` for the default MP3 output); the rest are optional and only needed for their respective output formats:
