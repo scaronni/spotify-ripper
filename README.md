@@ -163,7 +163,7 @@ Here is an example config file:
 ```json
 {
     "directory": "~/Music",
-    "format": "{album_artist}/{album}/{artist} - {track_name}.{ext}",
+    "format": "{album_artist}/{album}/{track_num:2} - {track_name}.{ext}",
     "quality": "160",
     "ascii": true,
     "all_artists": true
@@ -174,7 +174,7 @@ The file is always stored pretty-printed; you only need to include the keys you 
 
 ### Format String
 
-The format string dictates how `spotify-ripper` will organize your ripped files. This is controlled through the `-f | --format` option. The string should include the format of the file name and optionally a directory structure. If you do not include a format string, the default format will be used: `{album_artist}/{album}/{artist} - {track_name}.{ext}`.
+The format string dictates how `spotify-ripper` will organize your ripped files. This is controlled through the `-f | --format` option. The string should include the format of the file name and optionally a directory structure. If you do not include a format string, the default format will be used: `{album_artist}/{album}/{track_num:2} - {track_name}.{ext}`.
 
 The `--flat` option is shorthand for using the format string: `{artist} - {track_name}.{ext}`, and the `--flat-with-index` option is shorthand for using the format string: `{idx:3} - {artist} - {track_name}.{ext}`.  The use of these shorthand options will override any `--format` string option given.
 
