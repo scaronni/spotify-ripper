@@ -55,6 +55,9 @@ DEFAULT_CONFIG = {
     "playlist_wpl": False,
     # artist filtering
     "artist_album_type": None,
+    # rate-limit handling
+    "retries": 5,
+    "delay": 0,
     # misc
     "partial_check": "weak",
     "plus_pcm": False,
@@ -167,6 +170,8 @@ def main():
     parser.add_argument('-q', '--vbr', help='VBR quality setting or target bitrate for Opus [Default=0]')
     parser.add_argument('-Q', '--quality', choices=['160', '320', '96'], help='Spotify stream bitrate preference (320 requires Premium) [Default=320]')
     parser.add_argument('--keep-offline-cache', action='store_true', help='Keep librespot\'s offline audio cache instead of deleting it after a successful rip [Default=delete]')
+    parser.add_argument('--retries', type=int, help='Number of times to retry a track when Spotify rate-limits its audio key [Default=5]')
+    parser.add_argument('--delay', type=int, help='Seconds to wait between tracks and between retries; raise this if you hit audio-key rate limits [Default=0]')
     parser.add_argument('--resume-after', help='Resumes script after a certain amount of time has passed after stopping (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to start after (e.g 03:30, 16:15). Requires --stop-after option to be set')
     parser.add_argument('-R', '--replace', nargs="+", required=False, help='pattern to replace the output filename separated by "/". The following example replaces all spaces with "_" and all "-" with ".": spotify-ripper --replace " /_" "\\-/." uri')
     parser.add_argument('-s', '--strip-colors', action='store_true', help='Strip coloring from output [Default=colors]')

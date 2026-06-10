@@ -233,6 +233,9 @@ class Ripper(threading.Thread):
 
                     self.post.log_success(track)
 
+                    # pace requests to avoid hitting audio-key rate limits
+                    self.interruptible_sleep(args.delay)
+
                 except (SpotifyError, Exception) as e:
                     print(Fore.RED + "Error while ripping track" + Fore.RESET)
                     print(str(e))
@@ -374,6 +377,13 @@ class Ripper(threading.Thread):
         except (ValueError, TypeError):
             return self.audio_file
 
+    def interruptible_sleep(self, seconds):
+        """Sleep `seconds`, but stop early if the user aborts or skips."""
+        for _ in range(int(seconds)):
+            if self.abort.is_set() or self.skip.is_set():
+                break
+            time.sleep(1)
+
     # -- audio download + encode --------------------------------------------
 
     def rip_track(self, idx, track):
@@ -389,8 +399,27 @@ class Ripper(threading.Thread):
         track_id = uri_to_id(track.link.uri)
         temp_ogg = self.audio_file + ".part.ogg"
 
-        # 1) download the encrypted Ogg Vorbis stream (librespot decrypts it)
-        stream = self.api.load_stream(track_id, self.quality)
+        # 1) download the encrypted Ogg Vorbis stream (librespot decrypts it).
+        #    Spotify rate-limits audio-key requests, so retry (--retries) with
+        #    an optional wait (--delay) so the limit can clear.
+        stream = None
+        retries = max(1, self.args.retries)
+        for attempt in range(1, retries + 1):
+            try:
+                stream = self.api.load_stream(track_id, self.quality)
+                break
+            except RuntimeError as e:
+                if "audio key" not in str(e).lower() or attempt >= retries \
+                        or self.abort.is_set() or self.skip.is_set():
+                    raise
+                msg = "Audio key rate-limited; retrying (%d/%d)" \
+                    % (attempt, retries)
+                if self.args.delay > 0:
+                    msg += " in %ds" % self.args.delay
+                print(self.progress.indent() + Fore.YELLOW + msg + Fore.RESET)
+                self.interruptible_sleep(self.args.delay)
+        if stream is None:
+            return
         total_size = stream.input_stream.size
         self.progress.set_download_size(total_size)
 

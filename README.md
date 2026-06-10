@@ -66,7 +66,7 @@ usage: spotify-ripper [-h] [--login] [-a] [--aiff | --alac | --flac | --id3-v23 
                       [--comment COMMENT] [--cover-file COVER_FILE] [--cover-file-and-embed COVER_FILE] [-d DIRECTORY] [--fail-log FAIL_LOG] [-f FORMAT]
                       [--format-case {upper,lower,capitalize}] [--flat] [--flat-with-index] [-g {artist,album}] [--grouping GROUPING] [--large-cover-art]
                       [-L LOG] [-na] [-o] [--partial-check {none,weak,strict}] [--playlist-m3u] [--playlist-wpl] [--playlist-sync] [--plus-pcm]
-                      [--plus-wav] [-q VBR] [-Q {160,320,96}] [--keep-offline-cache] [--resume-after RESUME_AFTER] [-R REPLACE [REPLACE ...]] [-s]
+                      [--plus-wav] [-q VBR] [-Q {160,320,96}] [--keep-offline-cache] [--retries RETRIES] [--delay DELAY] [--resume-after RESUME_AFTER] [-R REPLACE [REPLACE ...]] [-s]
                       [--stereo-mode {j,s,f,d,m,l,r}] [--stop-after STOP_AFTER] [-V] [--windows-safe]
                       [uri ...]
 
@@ -129,6 +129,8 @@ options:
   -Q, --quality {160,320,96}
                         Spotify stream bitrate preference (320 requires Premium) [Default=320]
   --keep-offline-cache  Keep librespot's offline audio cache instead of deleting it after a successful rip [Default=delete]
+  --retries RETRIES     Number of times to retry a track when Spotify rate-limits its audio key [Default=5]
+  --delay DELAY         Seconds to wait between tracks and between retries; raise this if you hit audio-key rate limits [Default=0]
   --resume-after RESUME_AFTER
                         Resumes script after a certain amount of time has passed after stopping (e.g. 1h30m). Alternatively, accepts a specific time in 24hr
                         format to start after (e.g 03:30, 16:15). Requires --stop-after option to be set
