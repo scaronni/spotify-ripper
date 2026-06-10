@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spotify-ripper"
-version = "3.0.3"
+version = "3.1.0"
 description = "A small ripper for Spotify that rips Spotify URIs to media files"
 readme = "README.md"
 license = "MIT"
