@@ -459,6 +459,13 @@ impl Spotify {
             }
         }
 
+        log::debug!(
+            "{}: files {:?}, alternatives {:?}",
+            item.uri,
+            item.files.keys().collect::<Vec<_>>(),
+            item.alternatives
+        );
+
         let mut bitrates = vec![kbps];
         bitrates.extend([320, 160, 96].into_iter().filter(|b| *b != kbps));
         for bitrate in bitrates {
@@ -471,6 +478,9 @@ impl Spotify {
                 let track_id = SpotifyId::try_from(&item.track_id)?;
                 return Ok((track_id, *file_id, bitrate));
             }
+        }
+        if item.files.is_empty() {
+            return Err("Spotify provides no audio files for this track".into());
         }
         Err("track is not available in Ogg Vorbis format".into())
     }

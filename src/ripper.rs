@@ -783,9 +783,13 @@ impl Ripper {
         let retries = a.retries.max(1);
         let mut attempt = 1;
         let key = loop {
-            match self.spotify.audio_key(track_id, file_id).await {
+            let result = self.spotify.audio_key(track_id, file_id).await;
+            if aborted() || skipped() {
+                return Ok(());
+            }
+            match result {
                 Ok(key) => break key,
-                Err(e) if attempt < retries && !aborted() && !skipped() => {
+                Err(e) if attempt < retries => {
                     // without --delay, back off: 5, 10, 20, 40, 60, 60... seconds
                     let wait = if a.delay > 0 {
                         a.delay
@@ -797,6 +801,9 @@ impl Ripper {
                     );
                     log::debug!("audio key error: {e}");
                     Self::interruptible_sleep(wait).await;
+                    if aborted() || skipped() {
+                        return Ok(());
+                    }
                     attempt += 1;
                 }
                 Err(e) => return Err(format!("audio key: {e}").into()),
