@@ -107,8 +107,9 @@ macro_rules! warn {
     };
 }
 
-/// Width of the label column for the indented --verbose fields.
-const LABEL_WIDTH: usize = 10;
+/// Width of the label column for the --verbose fields: the width of the longest
+/// status word ("unavailable") plus a space, so the values align with the tracks.
+const LABEL_WIDTH: usize = 12;
 
 /// A '<indent><label:> <value>' line with a dim label, for --verbose details.
 pub fn format_field(indent: &str, label: &str, value: impl std::fmt::Display) -> String {
