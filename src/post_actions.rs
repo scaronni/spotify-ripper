@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::args::args;
 use crate::outln;
-use crate::output::{GREEN, RED, RESET, YELLOW};
+use crate::output::{GREEN, ORANGE, RED, RESET, YELLOW};
 use crate::util::{
     base_dir, cache_dir, change_file_extension, rm_file, sanitize_playlist_name, to_ascii,
 };
@@ -15,6 +15,7 @@ type Entry = (String, String);
 pub struct PostActions {
     success: Vec<Entry>,
     skipped: Vec<Entry>,
+    unavailable: Vec<Entry>,
     failure: Vec<Entry>,
     fail_log: Option<(PathBuf, File)>,
 }
@@ -43,6 +44,7 @@ impl PostActions {
         Self {
             success: Vec::new(),
             skipped: Vec::new(),
+            unavailable: Vec::new(),
             failure: Vec::new(),
             fail_log,
         }
@@ -54,6 +56,14 @@ impl PostActions {
 
     pub fn log_skipped(&mut self, entry: Entry) {
         self.skipped.push(entry);
+    }
+
+    /// Not available in the user's region; also listed in the fail log.
+    pub fn log_unavailable(&mut self, entry: Entry) {
+        if let Some((_, f)) = &mut self.fail_log {
+            let _ = writeln!(f, "{}", entry.0);
+        }
+        self.unavailable.push(entry);
     }
 
     pub fn log_failure(&mut self, entry: Entry) {
@@ -74,25 +84,34 @@ impl PostActions {
     }
 
     pub fn print_summary(&self) {
-        let (ripped, skipped, failed) =
-            (self.success.len(), self.skipped.len(), self.failure.len());
-        if ripped + skipped + failed == 0 {
+        let (ripped, skipped, unavailable, failed) = (
+            self.success.len(),
+            self.skipped.len(),
+            self.unavailable.len(),
+            self.failure.len(),
+        );
+        if ripped + skipped + unavailable + failed == 0 {
             return;
         }
         let bullet = if args().ascii { " * " } else { " • " };
+        let print_list = |color: &str, title: &str, entries: &[Entry]| {
+            if !entries.is_empty() {
+                outln!("{color}\n{title}:{RESET}");
+                for (uri, name) in entries {
+                    outln!("{bullet}{}", if name.is_empty() { uri } else { name });
+                }
+            }
+        };
 
         outln!("{GREEN}\nSummary{RESET}");
         outln!("{YELLOW}  Ripped:\t{RESET}{ripped}");
         outln!("{YELLOW}  Skipped:\t{RESET}{skipped}");
+        outln!("{YELLOW}  Unavailable:\t{RESET}{unavailable}");
         outln!("{YELLOW}  Failed:\t{RESET}{failed}");
 
         // list the tracks that didn't make it, so they're easy to spot
-        if failed > 0 {
-            outln!("{RED}\nFailed tracks:{RESET}");
-            for (uri, name) in &self.failure {
-                outln!("{bullet}{}", if name.is_empty() { uri } else { name });
-            }
-        }
+        print_list(ORANGE, "Unavailable tracks", &self.unavailable);
+        print_list(RED, "Failed tracks", &self.failure);
     }
 
     fn playlist_path(name: &str, ext: &str) -> PathBuf {

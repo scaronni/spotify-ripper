@@ -662,7 +662,7 @@ impl Ripper {
 
         if !track.available {
             outln!("{prefix}{ORANGE}Unavailable {uri} (not available in your region){RESET}");
-            self.post.log_failure(summary_entry(track));
+            self.post.log_unavailable(summary_entry(track));
             progress().track_idx += 1;
             return true;
         }
