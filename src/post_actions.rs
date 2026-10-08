@@ -1,13 +1,15 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::args::args;
-use crate::outln;
-use crate::output::{GREEN, ORANGE, RED, RESET, YELLOW};
+use crate::output::{BOLD, DIM, ORANGE, RED, RESET};
 use crate::util::{
-    base_dir, cache_dir, change_file_extension, rm_file, sanitize_playlist_name, to_ascii,
+    base_dir, cache_dir, change_file_extension, format_duration, rm_file, sanitize_playlist_name,
+    to_ascii,
 };
+use crate::{outln, warn};
 
 /// A track as listed in the summary: (URI, "Artist - Title").
 type Entry = (String, String);
@@ -38,7 +40,7 @@ impl PostActions {
             let opened = fs::create_dir_all(base_dir()).and_then(|_| File::create(&path));
             match opened {
                 Ok(f) => fail_log = Some((path, f)),
-                Err(e) => outln!("{YELLOW}Warning: cannot create fail log: {e}{RESET}"),
+                Err(e) => warn!("cannot create fail log: {e}"),
             }
         }
         Self {
@@ -83,7 +85,8 @@ impl PostActions {
         }
     }
 
-    pub fn print_summary(&self) {
+    /// One summary line; with --verbose also the tracks that didn't make it.
+    pub fn print_summary(&self, elapsed: Duration) {
         let (ripped, skipped, unavailable, failed) = (
             self.success.len(),
             self.skipped.len(),
@@ -93,25 +96,27 @@ impl PostActions {
         if ripped + skipped + unavailable + failed == 0 {
             return;
         }
-        let bullet = if args().ascii { " * " } else { " • " };
-        let print_list = |color: &str, title: &str, entries: &[Entry]| {
-            if !entries.is_empty() {
-                outln!("{color}\n{title}:{RESET}");
-                for (uri, name) in entries {
-                    outln!("{bullet}{}", if name.is_empty() { uri } else { name });
+        outln!(
+            "{BOLD}Done in {}:{RESET} {ripped} ripped, {skipped} skipped, {unavailable} unavailable, {failed} failed",
+            format_duration(elapsed.as_secs())
+        );
+
+        if args().verbose {
+            let bullet = if args().ascii { " * " } else { " • " };
+            let print_list = |color: &str, title: &str, entries: &[Entry]| {
+                if !entries.is_empty() {
+                    outln!("{color}{title}:{RESET}");
+                    for (uri, name) in entries {
+                        outln!(
+                            "{bullet}{} {DIM}{uri}{RESET}",
+                            if name.is_empty() { uri } else { name }
+                        );
+                    }
                 }
-            }
-        };
-
-        outln!("{GREEN}\nSummary{RESET}");
-        outln!("{YELLOW}  Ripped:\t{RESET}{ripped}");
-        outln!("{YELLOW}  Skipped:\t{RESET}{skipped}");
-        outln!("{YELLOW}  Unavailable:\t{RESET}{unavailable}");
-        outln!("{YELLOW}  Failed:\t{RESET}{failed}");
-
-        // list the tracks that didn't make it, so they're easy to spot
-        print_list(ORANGE, "Unavailable tracks", &self.unavailable);
-        print_list(RED, "Failed tracks", &self.failure);
+            };
+            print_list(ORANGE, "Unavailable tracks", &self.unavailable);
+            print_list(RED, "Failed tracks", &self.failure);
+        }
     }
 
     fn playlist_path(name: &str, ext: &str) -> PathBuf {
@@ -127,20 +132,14 @@ impl PostActions {
             return;
         }
         let path = Self::playlist_path(name.unwrap_or("0_playlist"), "m3u");
-        outln!(
-            "{GREEN}Creating playlist m3u file {}{RESET}",
-            path.display()
-        );
         let content: String = files
             .iter()
             .filter(|f| f.exists())
             .map(|f| rel_path(f) + "\n")
             .collect();
-        if let Err(e) = fs::write(&path, content) {
-            outln!(
-                "{YELLOW}Warning: cannot write {}: {e}{RESET}",
-                path.display()
-            );
+        match fs::write(&path, content) {
+            Ok(()) => outln!("Created playlist {}", path.display()),
+            Err(e) => warn!("cannot write {}: {e}", path.display()),
         }
     }
 
@@ -149,10 +148,6 @@ impl PostActions {
             return;
         };
         let path = Self::playlist_path(name, "wpl");
-        outln!(
-            "{GREEN}Creating playlist wpl file {}{RESET}",
-            path.display()
-        );
 
         let escape = |s: &str| {
             s.replace('&', "&amp;")
@@ -182,17 +177,14 @@ impl PostActions {
             ));
         }
         s.push_str("\t\t</seq>\n\t</body>\n</smil>\n");
-        if let Err(e) = fs::write(&path, s) {
-            outln!(
-                "{YELLOW}Warning: cannot write {}: {e}{RESET}",
-                path.display()
-            );
+        match fs::write(&path, s) {
+            Ok(()) => outln!("Created playlist {}", path.display()),
+            Err(e) => warn!("cannot write {}: {e}", path.display()),
         }
     }
 
     pub fn clean_up_partial(&self, audio_file: &Path) {
         if audio_file.exists() {
-            outln!("{YELLOW}Deleting partially ripped file{RESET}");
             rm_file(audio_file);
         }
         // check for any extra pcm or wav files

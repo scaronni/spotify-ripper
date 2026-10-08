@@ -7,8 +7,7 @@ use std::sync::LazyLock;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::args::args;
-use crate::outln;
-use crate::output::{RESET, YELLOW};
+use crate::warn;
 
 fn home_dir() -> PathBuf {
     env::var_os("HOME")
@@ -92,27 +91,12 @@ pub fn escape_filename_part(part: &str) -> String {
     ESC_DOT_RUNS.replace_all(&part, ".").into_owned()
 }
 
-/// Convert to ASCII when --ascii is set; `replace` substitutes '?' for
-/// unrepresentable characters instead of dropping them.
-pub fn to_ascii_with(s: &str, replace: bool) -> String {
+/// Convert to ASCII when --ascii is set, dropping unrepresentable characters.
+pub fn to_ascii(s: &str) -> String {
     if !args().ascii {
         return s.to_owned();
     }
-    s.chars()
-        .filter_map(|c| {
-            if c.is_ascii() {
-                Some(c)
-            } else if replace {
-                Some('?')
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-pub fn to_ascii(s: &str) -> String {
-    to_ascii_with(s, false)
+    s.chars().filter(char::is_ascii).collect()
 }
 
 pub fn to_normalized_ascii(s: &str) -> String {
@@ -123,11 +107,7 @@ pub fn rm_file(path: &Path) {
     if let Err(e) = fs::remove_file(path)
         && e.kind() != std::io::ErrorKind::NotFound
     {
-        outln!(
-            "{YELLOW}Warning: error while trying to remove file {}{RESET}",
-            path.display()
-        );
-        outln!("{e}");
+        warn!("cannot remove {}: {e}", path.display());
     }
 }
 
@@ -218,30 +198,16 @@ pub fn format_time(seconds: u64, total: Option<u64>) -> String {
     }
 }
 
-/// Short 6-character form, e.g. "01h 05m" or "00m 15s".
-pub fn format_time_short(seconds: u64) -> String {
-    const UNITS: [(&str, u64); 6] = [
-        ("y", 60 * 60 * 24 * 7 * 52),
-        ("w", 60 * 60 * 24 * 7),
-        ("d", 60 * 60 * 24),
-        ("h", 60 * 60),
-        ("m", 60),
-        ("s", 1),
-    ];
-    if seconds < 60 {
-        return format!("00m {seconds:02}s");
+/// Compact duration, e.g. "45s", "14m02s" or "1h05m".
+pub fn format_duration(seconds: u64) -> String {
+    let (hours, mins, secs) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);
+    if hours > 0 {
+        format!("{hours}h{mins:02}m")
+    } else if mins > 0 {
+        format!("{mins}m{secs:02}s")
+    } else {
+        format!("{secs}s")
     }
-    for pair in UNITS.windows(2) {
-        let ((unit1, limit1), (unit2, limit2)) = (pair[0], pair[1]);
-        if seconds >= limit1 {
-            return format!(
-                "{:02}{unit1} {:02}{unit2}",
-                seconds / limit1,
-                (seconds % limit1) / limit2
-            );
-        }
-    }
-    "  ~inf".to_owned()
 }
 
 #[cfg(test)]
@@ -261,8 +227,9 @@ mod tests {
         assert_eq!(format_size(512), "512.00 Bytes");
         assert_eq!(format_size(1536), "1.50 KB");
         assert_eq!(format_time(65, Some(3725)), "01:05 / 01:02:05");
-        assert_eq!(format_time_short(15), "00m 15s");
-        assert_eq!(format_time_short(3900), "01h 05m");
+        assert_eq!(format_duration(45), "45s");
+        assert_eq!(format_duration(842), "14m02s");
+        assert_eq!(format_duration(3900), "1h05m");
     }
 
     #[test]

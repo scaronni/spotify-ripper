@@ -51,6 +51,7 @@ pub fn default_config() -> Map<String, Value> {
         "plus_wav": false,
         "keep_offline_cache": false,
         "fail_log": null,
+        "verbose": false,
     });
     match config {
         Value::Object(map) => map,

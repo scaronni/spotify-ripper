@@ -28,7 +28,8 @@ A few notes:
 -  One-time Zeroconf pairing with the official Spotify app; reusable credentials stored for later runs
 -  A single binary written in Rust; only the encoders (`ffmpeg`, `lame`, ...) are needed at runtime
 -  Use a config file to specify common command-line options
--  Helpful progress bar to gauge the time remaining until completion
+-  Progress bars for the current track and the whole run, with the time remaining
+-  Compact output with one line per track, easy to filter with grep (`-v` for more details)
 -  Keep local files in sync with a Spotify playlist, m3u and wpl playlist file
 -  Option to rip to ALAC/FLAC/AIFF (loseless codecs) or Ogg Vorbis, Opus and MP4/M4A instead of MP3
 -  Option to replace output filenames
@@ -158,6 +159,8 @@ Options:
           Advanced stereo settings for Lame MP3 encoder only [possible values: j, s, f, d, m, l, r]
       --stop-after <STOP_AFTER>
           Stops script after a certain amount of time has passed (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to stop after (e.g 03:30, 16:15)
+  -v, --verbose
+          Show the file name, URI and tag details of every track, and list the unavailable and failed tracks at the end
   -V, --version
           show program's version number and exit
       --wav

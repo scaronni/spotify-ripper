@@ -7,20 +7,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::args::args;
 use crate::format::{Context, format_track_string, python_replacement};
-use crate::output::{BRIGHT, CYAN, GREEN, NORMAL, ORANGE, RED, RESET, YELLOW, format_field};
+use crate::output::{DIM, GREEN, ORANGE, RED, RESET, format_field};
 use crate::post_actions::{PostActions, rel_path};
 use crate::spotify::{AlbumInfo, PlaylistInfo, Spotify, TrackInfo};
 use crate::tags::{file_duration, set_metadata_tags};
 use crate::terminal::{RIPPING, SKIP, aborted, progress, skipped};
 use crate::util::{
-    base_dir, calc_file_size, change_file_extension, format_size, parse_time_str, rm_file,
-    to_ascii, to_normalized_ascii,
+    base_dir, calc_file_size, change_file_extension, format_size, format_time, parse_time_str,
+    rm_file, to_ascii, to_normalized_ascii,
 };
-use crate::{out, outln};
+use crate::{outln, warn};
 
 // raw PCM decoded from the Ogg Vorbis stream is signed 16-bit stereo @ 44100 Hz
 const PCM_SAMPLE_RATE: u32 = 44100;
@@ -48,6 +48,45 @@ pub fn normalize_uri(uri: &str) -> String {
 
 fn uri_to_id(uri: &str) -> &str {
     uri.rsplit(':').next().unwrap_or_default()
+}
+
+/// The outcome of a track, the first word of its line.
+#[derive(Clone, Copy)]
+enum Status {
+    Ripped,
+    Skipped,
+    Unavailable,
+    Failed,
+}
+
+/// One greppable line per track: "[ N/M] status  what · detail".
+fn print_status(prefix: &str, status: Status, what: &str, detail: &str) {
+    let sep = if args().ascii { " - " } else { " · " };
+    let (word, color) = match status {
+        Status::Ripped => ("ripped", GREEN),
+        Status::Skipped => ("skipped", DIM),
+        Status::Unavailable => ("unavailable", ORANGE),
+        Status::Failed => ("failed", RED),
+    };
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("{DIM}{sep}{detail}{RESET}")
+    };
+    match status {
+        Status::Skipped => outln!("{DIM}{prefix}{word:<11} {what}{RESET}{detail}"),
+        _ => outln!("{prefix}{color}{word:<11}{RESET} {what}{detail}"),
+    }
+}
+
+/// "Artist, Other Artist - Title" for the track lines and bars.
+fn track_name(track: &TrackInfo) -> String {
+    to_ascii(&format!("{} - {}", track.artist_names(), track.name))
+}
+
+/// First line of an error, for the one-line track output.
+fn short_error(e: &dyn std::fmt::Display) -> String {
+    e.to_string().lines().next().unwrap_or_default().to_owned()
 }
 
 fn summary_entry(track: &TrackInfo) -> (String, String) {
@@ -156,8 +195,8 @@ impl Sinks {
             drop(stdin);
             let status = child.wait()?;
             if !status.success() {
-                outln!(
-                    "{YELLOW}Warning: encoder returned non-zero error code {}{RESET}",
+                warn!(
+                    "encoder returned non-zero error code {}",
                     status.code().unwrap_or(-1)
                 );
             }
@@ -338,24 +377,27 @@ impl Ripper {
             && let Some(t) = account_type
             && t != "premium"
         {
-            outln!("Account is not premium; falling back to 160 kbps stream.");
+            warn!("account is not premium, falling back to the 160 kbps stream");
             self.kbps = 160;
         }
     }
 
-    async fn load_tracks(&self, ids: &[String]) -> Vec<TrackInfo> {
+    /// Load track metadata; `what` prefixes the loading status line.
+    async fn load_tracks(&self, ids: &[String], what: &str) -> Vec<TrackInfo> {
         let mut tracks = Vec::new();
         for (i, id) in ids.iter().enumerate() {
             if aborted() {
                 break;
             }
-            out!("Loading track {}/{}...\r", i, ids.len());
+            progress().loading(&format!("{what}loading track {}/{}", i + 1, ids.len()));
             match self.spotify.track(id).await {
                 Ok(t) => tracks.push(t),
-                Err(e) => outln!("{YELLOW}Failed to load spotify:track:{id}: {e}{RESET}"),
+                Err(e) => {
+                    progress().clear_loading();
+                    warn!("cannot load spotify:track:{id}: {}", short_error(&e));
+                }
             }
         }
-        outln!("Loading track {}/{}...", ids.len(), ids.len());
         tracks
     }
 
@@ -378,7 +420,7 @@ impl Ripper {
         let id = uri_to_id(uri).to_owned();
 
         if uri.starts_with("spotify:track:") {
-            job.tracks = self.load_tracks(&[id]).await;
+            job.tracks = self.load_tracks(&[id], "").await;
         } else if uri.starts_with("spotify:playlist:") {
             let playlist = self.spotify.playlist(&id).await?;
             let ids: Vec<String> = playlist
@@ -386,11 +428,11 @@ impl Ripper {
                 .iter()
                 .map(|t| uri_to_id(t).to_owned())
                 .collect();
-            job.tracks = self.load_tracks(&ids).await;
+            job.tracks = self.load_tracks(&ids, "").await;
             job.playlist = Some(playlist);
         } else if uri.starts_with("spotify:album:") {
             let album = self.spotify.album(&id).await?;
-            job.tracks = self.load_tracks(&Self::album_track_ids(&album)).await;
+            job.tracks = self.load_tracks(&Self::album_track_ids(&album), "").await;
             job.album = Some(album);
         } else if uri.starts_with("spotify:artist:") {
             // the full discography, filtered by --artist-album-type
@@ -404,21 +446,25 @@ impl Ripper {
                 .filter_map(|w| artist.albums.get(w.as_str()))
                 .flatten()
                 .collect();
-            outln!("{} albums found", album_ids.len());
-            for album_id in album_ids {
+            let count = album_ids.len();
+            for (i, album_id) in album_ids.into_iter().enumerate() {
                 if aborted() {
                     break;
                 }
+                let what = format!("album {}/{count}, ", i + 1);
                 match self.spotify.album(album_id).await {
                     Ok(album) => {
-                        let tracks = self.load_tracks(&Self::album_track_ids(&album)).await;
-                        job.tracks.extend(tracks);
+                        let ids = Self::album_track_ids(&album);
+                        job.tracks.extend(self.load_tracks(&ids, &what).await);
                     }
-                    Err(e) => outln!("{YELLOW}Failed to load spotify:album:{album_id}: {e}{RESET}"),
+                    Err(e) => {
+                        progress().clear_loading();
+                        warn!("cannot load spotify:album:{album_id}: {}", short_error(&e));
+                    }
                 }
             }
         } else if !uri.is_empty() {
-            outln!("{YELLOW}Ignoring unsupported URI {uri}{RESET}");
+            warn!("ignoring unsupported URI {uri}");
         }
         Ok(job)
     }
@@ -471,7 +517,7 @@ impl Ripper {
                             .replace_all(&audio_file, python_replacement(to).as_str())
                             .into_owned()
                     }
-                    Err(e) => outln!("{YELLOW}Invalid --replace pattern {from}: {e}{RESET}"),
+                    Err(e) => warn!("invalid --replace pattern {from}: {e}"),
                 }
             }
         }
@@ -489,10 +535,7 @@ impl Ripper {
         if let Some(dir) = path.parent()
             && let Err(e) = fs::create_dir_all(dir)
         {
-            outln!(
-                "{YELLOW}Warning: cannot create {}: {e}{RESET}",
-                dir.display()
-            );
+            warn!("cannot create {}: {e}", dir.display());
         }
 
         self.path_cache.insert(uri, path.clone());
@@ -519,25 +562,16 @@ impl Ripper {
         };
         let stop_time = *self.stop_time.get_or_insert_with(|| {
             let t = parse_time_str(stop_after).expect("validated at startup");
-            outln!(
-                "{YELLOW}Script will stop after {}{RESET}",
-                t.format("%H:%M")
-            );
+            outln!("Stopping after {}", t.format("%H:%M"));
             t
         });
         if stop_time >= Local::now() {
             return;
         }
-        outln!(
-            "{YELLOW}Stop time of {} has been triggered, stopping...{RESET}",
-            stop_time.format("%H:%M")
-        );
+        outln!("Stop time {} reached", stop_time.format("%H:%M"));
         match a.resume_after.as_deref().and_then(parse_time_str) {
             Some(resume_time) => {
-                outln!(
-                    "{YELLOW}Script will resume at {}{RESET}",
-                    resume_time.format("%H:%M")
-                );
+                outln!("Resuming at {}", resume_time.format("%H:%M"));
                 while Local::now() < resume_time && !aborted() {
                     std::thread::sleep(Duration::from_secs(1));
                 }
@@ -559,6 +593,7 @@ impl Ripper {
 
     pub async fn run(&mut self, uris: &[String]) {
         let a = args();
+        let started = Instant::now();
         self.select_quality().await;
 
         // load everything first, to calculate the total size and time
@@ -570,19 +605,28 @@ impl Ripper {
             let uri = normalize_uri(uri);
             match self.load_link(&uri).await {
                 Ok(job) => jobs.push(job),
-                Err(e) => outln!("{RED}Failed to load {uri}: {e}{RESET}"),
+                Err(e) => {
+                    progress().clear_loading();
+                    print_status("", Status::Failed, &uri, &short_error(&e));
+                }
             }
         }
 
         let user = self.user.clone();
         let mut totals = Vec::new();
+        let (mut existing, mut unavailable) = (0, 0);
         for job in &jobs {
             let ctx = job.context(&user);
             for (idx, track) in job.tracks.iter().enumerate() {
                 let path = self.format_track_path(&ctx, idx, track);
-                let skip = !track.available
-                    || (!a.overwrite && path.exists() && !Self::is_partial(&path, track));
-                totals.push((track.duration, calc_file_size(track.duration), skip));
+                let exists = !a.overwrite && path.exists() && !Self::is_partial(&path, track);
+                existing += usize::from(track.available && exists);
+                unavailable += usize::from(!track.available);
+                totals.push((
+                    track.duration,
+                    calc_file_size(track.duration),
+                    !track.available || exists,
+                ));
             }
         }
         progress().calc_total(&totals);
@@ -590,10 +634,27 @@ impl Ripper {
             let p = progress();
             (p.total_size, p.total_tracks)
         };
-        if total_size > 0 {
-            outln!("Total Download Size: {}", format_size(total_size));
+        progress().clear_loading();
+        if !totals.is_empty() {
+            let plural = if totals.len() == 1 { "" } else { "s" };
+            let mut found = format!("Found {} track{plural}: ", totals.len());
+            if total_tracks > 0 {
+                found.push_str(&format!(
+                    "{total_tracks} to rip ({})",
+                    format_size(total_size)
+                ));
+            } else {
+                found.push_str("nothing to rip");
+            }
+            if existing > 0 {
+                found.push_str(&format!(", {existing} already ripped"));
+            }
+            if unavailable > 0 {
+                found.push_str(&format!(", {unavailable} unavailable"));
+            }
+            outln!("{found}");
         }
-        // pin the live status block to the bottom of the screen
+        // pin the live status bars to the bottom of the screen
         if total_tracks > 0 {
             progress().setup();
         }
@@ -647,7 +708,7 @@ impl Ripper {
         progress().teardown();
         self.post.cleanup_offline_cache();
         self.post.end_failure_log();
-        self.post.print_summary();
+        self.post.print_summary(started.elapsed());
     }
 
     /// Rip one track; returns false if ripping should stop (abort).
@@ -658,10 +719,24 @@ impl Ripper {
             (p.counter_prefix(), p.indent())
         };
         let audio_file = self.format_track_path(ctx, idx, track);
-        let uri = track.uri();
+        let name = track_name(track);
+        let details = |file: bool| {
+            if a.verbose {
+                if file {
+                    outln!("{}", format_field(&indent, "file", rel_path(&audio_file)));
+                }
+                outln!("{}", format_field(&indent, "uri", track.uri()));
+            }
+        };
 
         if !track.available {
-            outln!("{prefix}{ORANGE}Unavailable {uri} (not available in your region){RESET}");
+            print_status(
+                &prefix,
+                Status::Unavailable,
+                &name,
+                "not available in your region",
+            );
+            details(false);
             self.post.log_unavailable(summary_entry(track));
             progress().track_idx += 1;
             return true;
@@ -669,24 +744,17 @@ impl Ripper {
 
         if !a.overwrite && audio_file.exists() {
             if Self::is_partial(&audio_file, track) {
-                outln!("Overwriting partial file");
+                if a.verbose {
+                    outln!("{indent}{DIM}replacing partial file{RESET}");
+                }
             } else {
-                outln!("{prefix}{CYAN}{BRIGHT}Skipping {uri}{NORMAL}{RESET}");
-                outln!(
-                    "{}",
-                    format_field(&indent, "File name", rel_path(&audio_file))
-                );
+                print_status(&prefix, Status::Skipped, &name, "exists");
+                details(true);
                 self.post.log_skipped(summary_entry(track));
                 progress().track_idx += 1;
                 return true;
             }
         }
-
-        outln!("{prefix}{GREEN}{BRIGHT}Ripping {uri}{NORMAL}{RESET}");
-        outln!(
-            "{}",
-            format_field(&indent, "File name", rel_path(&audio_file))
-        );
 
         let mut sinks = Sinks::default();
         let result = self
@@ -694,43 +762,89 @@ impl Ripper {
             .await;
         RIPPING.store(false, Ordering::Relaxed);
 
-        if let Err(e) = result {
-            outln!("{RED}Error while ripping track{RESET}");
-            outln!("{e}");
-            outln!("Skipping to next track...");
+        let failure = match result {
+            Err(e) => Some(short_error(&e)),
+            Ok(()) if skipped() => Some("skipped by user".to_owned()),
+            Ok(()) if aborted() => Some("aborted".to_owned()),
+            Ok(()) => None,
+        };
+        if let Some(reason) = failure {
             sinks.abort();
             self.post.clean_up_partial(&audio_file);
             self.post.log_failure(summary_entry(track));
-            progress().end_track(false);
-            return true;
+            progress().end_track();
+            print_status(&prefix, Status::Failed, &name, &reason);
+            details(true);
+            return !aborted();
         }
 
-        if skipped() {
-            outln!("{YELLOW}User skipped track...{RESET}");
-            sinks.abort();
-            self.post.clean_up_partial(&audio_file);
-            self.post.log_failure(summary_entry(track));
-            progress().end_track(false);
-            return true;
-        }
-        if aborted() {
-            sinks.abort();
-            self.post.clean_up_partial(&audio_file);
-            self.post.log_failure(summary_entry(track));
-            return false;
-        }
-
-        progress().end_track(true);
         if let Err(e) = tokio::task::block_in_place(|| sinks.finish()) {
-            outln!("{RED}Error while finishing track: {e}{RESET}");
             self.post.clean_up_partial(&audio_file);
             self.post.log_failure(summary_entry(track));
+            progress().end_track();
+            print_status(&prefix, Status::Failed, &name, &short_error(&e));
+            details(true);
             return true;
         }
 
         // update tags and embed front cover image
+        progress().set_phase("tagging", 1.0);
         let image = self.cover_image(track).await;
-        set_metadata_tags(ctx, &audio_file, idx, track, image, &indent);
+        let length = match set_metadata_tags(ctx, &audio_file, idx, track, image) {
+            Ok(length) => length,
+            Err(e) => {
+                warn!("cannot save tags: {e}");
+                Duration::from_millis(track.duration as u64)
+            }
+        };
+        progress().end_track();
+
+        let size = fs::metadata(&audio_file).map(|m| m.len()).unwrap_or(0);
+        let sep = if a.ascii { " - " } else { " · " };
+        print_status(
+            &prefix,
+            Status::Ripped,
+            &format!("{name} ({})", track.album.year),
+            &format!(
+                "{}{sep}{}",
+                format_time(length.as_secs(), None),
+                format_size(size)
+            ),
+        );
+        if a.verbose {
+            details(true);
+            let album = &track.album;
+            outln!(
+                "{}",
+                format_field(
+                    &indent,
+                    "album",
+                    to_ascii(&format!("{} ({})", album.name, album.artist_name()))
+                )
+            );
+            outln!(
+                "{}",
+                format_field(
+                    &indent,
+                    "track",
+                    format!(
+                        "{}/{}, disc {}/{}",
+                        track.number,
+                        album.num_tracks(track.disc),
+                        track.disc,
+                        album.num_discs()
+                    )
+                )
+            );
+            if let Some(comment) = &a.comment {
+                let comment = format_track_string(ctx, comment, idx, track);
+                outln!("{}", format_field(&indent, "comment", comment));
+            }
+            if let Some(grouping) = &a.grouping {
+                let grouping = format_track_string(ctx, grouping, idx, track);
+                outln!("{}", format_field(&indent, "grouping", grouping));
+            }
+        }
         self.post.log_success(summary_entry(track));
 
         // pace requests to avoid hitting audio-key rate limits
@@ -748,7 +862,7 @@ impl Ripper {
         match self.spotify.fetch_url(&url).await {
             Ok(data) => Some(data.to_vec()),
             Err(e) => {
-                outln!("{YELLOW}Failed to retrieve cover art: {e}{RESET}");
+                warn!("cannot retrieve the cover art: {}", short_error(&e));
                 None
             }
         }
@@ -762,7 +876,7 @@ impl Ripper {
         sinks: &mut Sinks,
     ) -> Result<(), crate::spotify::Error> {
         let a = args();
-        progress().prepare_track(track.duration);
+        progress().prepare_track(track.duration, &track_name(track));
         // mark as ripping up front so Esc works during the download too
         RIPPING.store(true, Ordering::Relaxed);
 
@@ -787,11 +901,22 @@ impl Ripper {
                     } else {
                         (5u64 << (attempt - 1).min(4)).min(60)
                     };
-                    outln!(
-                        "{indent}{YELLOW}Audio key rate-limited; retrying ({attempt}/{retries}) in {wait}s{RESET}"
-                    );
+                    if a.verbose {
+                        outln!(
+                            "{indent}{DIM}audio key rate-limited, retry {attempt}/{retries} in {wait}s{RESET}"
+                        );
+                    }
                     log::debug!("audio key error: {e}");
-                    Self::interruptible_sleep(wait).await;
+                    for left in (1..=wait).rev() {
+                        if aborted() || skipped() {
+                            break;
+                        }
+                        progress().set_phase(
+                            &format!("waiting {left}s (retry {attempt}/{retries})"),
+                            0.0,
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
                     if aborted() || skipped() {
                         return Ok(());
                     }
@@ -805,7 +930,6 @@ impl Ripper {
         }
 
         let mut stream = self.spotify.open_audio(file_id, kbps, key).await?;
-        progress().set_download_size(stream.size);
 
         // download the decrypted Ogg Vorbis stream
         let total = stream.size;
@@ -820,7 +944,7 @@ impl Ripper {
                 }
                 ogg.write_all(&buf[..n])?;
                 downloaded += n as u64;
-                progress().set_download_progress(downloaded, total);
+                progress().add_downloaded(n as u64, downloaded, total);
             }
             ogg.flush()
         })?;
@@ -859,6 +983,7 @@ fn decode_and_feed(temp_ogg: &Path, sinks: &mut Sinks) -> io::Result<()> {
         .spawn()?;
     let mut stdout = decoder.stdout.take().expect("piped stdout");
     let mut buf = vec![0u8; DECODE_CHUNK];
+    let mut position_ms = 0.0;
     let result = (|| -> io::Result<()> {
         loop {
             if aborted() || skipped() {
@@ -868,7 +993,8 @@ fn decode_and_feed(temp_ogg: &Path, sinks: &mut Sinks) -> io::Result<()> {
             if n == 0 {
                 return Ok(());
             }
-            progress().update_progress(n / PCM_FRAME_BYTES, PCM_SAMPLE_RATE);
+            position_ms += (n / PCM_FRAME_BYTES) as f64 * 1000.0 / PCM_SAMPLE_RATE as f64;
+            progress().set_encoded(position_ms);
             sinks.write(&buf[..n])?;
         }
     })();

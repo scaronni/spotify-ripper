@@ -1,5 +1,5 @@
-// Console / log output, replacing colorama: colors are plain ANSI SGR codes
-// that are stripped when not writing to a terminal, with -s, or with -L.
+// Console / log output: colors are plain ANSI SGR codes that are stripped when
+// not writing to a terminal, with -s, or with -L.
 
 use std::fs::OpenOptions;
 use std::io::{self, IsTerminal, Write};
@@ -7,12 +7,10 @@ use std::sync::{Mutex, OnceLock};
 
 pub const GREEN: &str = "\x1b[32m";
 pub const RED: &str = "\x1b[31m";
-pub const YELLOW: &str = "\x1b[33m";
-pub const CYAN: &str = "\x1b[36m";
 pub const ORANGE: &str = "\x1b[38;5;208m";
-pub const RESET: &str = "\x1b[39m";
-pub const BRIGHT: &str = "\x1b[1m";
-pub const NORMAL: &str = "\x1b[22m";
+pub const BOLD: &str = "\x1b[1m";
+pub const DIM: &str = "\x1b[2m";
+pub const RESET: &str = "\x1b[0m";
 
 struct Output {
     writer: Box<dyn Write + Send>,
@@ -96,18 +94,26 @@ macro_rules! outln {
     ($($arg:tt)*) => { $crate::output::write(&format!("{}\n", format!($($arg)*))) };
 }
 
+/// A non-fatal problem, in orange.
 #[macro_export]
-macro_rules! out {
-    ($($arg:tt)*) => { $crate::output::write(&format!($($arg)*)) };
+macro_rules! warn {
+    ($($arg:tt)*) => {
+        $crate::output::write(&format!(
+            "{}warning: {}{}\n",
+            $crate::output::ORANGE,
+            format!($($arg)*),
+            $crate::output::RESET
+        ))
+    };
 }
 
-/// Width of the label column for the indented per-track fields.
-const LABEL_WIDTH: usize = 14;
+/// Width of the label column for the indented --verbose fields.
+const LABEL_WIDTH: usize = 10;
 
-/// A '<indent><Label:>   <value>' line: yellow label padded to a fixed column.
+/// A '<indent><label:> <value>' line with a dim label, for --verbose details.
 pub fn format_field(indent: &str, label: &str, value: impl std::fmt::Display) -> String {
     format!(
-        "{indent}{YELLOW}{:<width$}{RESET}{value}",
+        "{indent}{DIM}{:<width$}{RESET}{value}",
         format!("{label}:"),
         width = LABEL_WIDTH
     )
@@ -120,7 +126,7 @@ mod tests {
     #[test]
     fn strips_only_colors() {
         assert_eq!(strip_sgr("\x1b[32mok\x1b[39m"), "ok");
-        assert_eq!(strip_sgr("\x1b[1m\x1b[36mA\x1b[22m"), "A");
+        assert_eq!(strip_sgr("\x1b[1m\x1b[2mA\x1b[0m"), "A");
         assert_eq!(strip_sgr("\x1b[38;5;208mA\x1b[39m"), "A");
         assert_eq!(strip_sgr("a\x1b[2Kb"), "a\x1b[2Kb");
     }

@@ -5,10 +5,9 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::outln;
-use crate::output::{RESET, YELLOW};
 use crate::spotify::PlaylistInfo;
 use crate::util::{settings_dir, to_ascii};
+use crate::{outln, warn};
 
 fn sync_lib_path(playlist: &PlaylistInfo) -> PathBuf {
     let lib_path = settings_dir().join("Sync");
@@ -40,7 +39,7 @@ fn save_sync_library(playlist: &PlaylistInfo, lib: &[(String, String)]) {
     }
     s.push_str(if lib.is_empty() { "}" } else { "\n}" });
     if let Err(e) = fs::write(sync_lib_path(playlist), s) {
-        outln!("{YELLOW}Warning: cannot save playlist sync library: {e}{RESET}");
+        warn!("cannot save playlist sync library: {e}");
     }
 }
 
@@ -58,19 +57,15 @@ pub fn sync_playlist(playlist: &PlaylistInfo, new_lib: &[(String, String)]) {
             continue;
         }
         match new_lib.iter().find(|(u, _)| u == uri) {
-            Some((_, new_path)) if new_path != file_path => {
-                outln!("{YELLOW}Renaming file:{RESET}\n  From: {file_path}\n  To:   {new_path}");
-                if let Err(e) = fs::rename(file_path, new_path) {
-                    outln!("{YELLOW}Warning: {e}{RESET}");
-                }
-            }
+            Some((_, new_path)) if new_path != file_path => match fs::rename(file_path, new_path) {
+                Ok(()) => outln!("Renamed {file_path} -> {new_path}"),
+                Err(e) => warn!("cannot rename {file_path}: {e}"),
+            },
             Some(_) => {}
-            None => {
-                outln!("{YELLOW}Removing file:{RESET}\n {file_path}");
-                if let Err(e) = fs::remove_file(file_path) {
-                    outln!("{YELLOW}Warning: {e}{RESET}");
-                }
-            }
+            None => match fs::remove_file(file_path) {
+                Ok(()) => outln!("Removed {file_path}"),
+                Err(e) => warn!("cannot remove {file_path}: {e}"),
+            },
         }
     }
 

@@ -45,6 +45,7 @@ pub struct Args {
     pub strip_colors: bool,
     pub stereo_mode: Option<String>,
     pub stop_after: Option<String>,
+    pub verbose: bool,
     pub windows_safe: bool,
     /// Output file extension, e.g. "mp3", "flac", "alac.m4a".
     pub output_type: String,
@@ -131,6 +132,7 @@ pub fn command(version: &'static str) -> Command {
         .arg(flag("strip_colors", "strip-colors", "Strip coloring from output [Default=colors]").short('s'))
         .arg(opt("stereo_mode", "stereo-mode", "Advanced stereo settings for Lame MP3 encoder only").value_parser(["j", "s", "f", "d", "m", "l", "r"]))
         .arg(opt("stop_after", "stop-after", "Stops script after a certain amount of time has passed (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to stop after (e.g 03:30, 16:15)"))
+        .arg(flag("verbose", "verbose", "Show the file name, URI and tag details of every track, and list the unavailable and failed tracks at the end").short('v'))
         .arg(flag("version", "version", "show program's version number and exit").short('V'))
         .arg(flag("wav", "wav", "Rip songs to uncompressed WAV file instead of MP3"))
         .arg(flag("windows_safe", "windows-safe", "Make filename safe for Windows file system (truncate filename to 255 characters)"))
@@ -268,6 +270,7 @@ pub fn resolve(matches: &ArgMatches, config: &Map<String, Value>) -> Args {
         strip_colors: r.flag("strip_colors"),
         stereo_mode: r.opt_str("stereo_mode"),
         stop_after: r.opt_str("stop_after"),
+        verbose: r.flag("verbose"),
         windows_safe: r.flag("windows_safe"),
         output_type: String::new(),
         has_log: false,

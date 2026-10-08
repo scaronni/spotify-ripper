@@ -17,101 +17,88 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::args::{args, set_args};
-use crate::output::{GREEN, RED, RESET, YELLOW};
+use crate::output::{BOLD, RED, RESET};
 use crate::util::{base_dir, parse_time_str, settings_dir, to_ascii, which};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn format_name(output_type: &str) -> &str {
-    match output_type {
-        "wav" => "WAV",
-        "pcm" => "Raw headerless PCM",
-        "flac" => "FLAC",
-        "aiff" => "AIFF",
-        "alac.m4a" => "Apple Lossless (ALAC)",
-        "ogg" => "Ogg Vorbis (native, copied from Spotify)",
-        "opus" => "Opus",
-        "mp3" => "MP3",
-        "m4a" => "MPEG-4 AAC",
-        other => other,
-    }
-}
-
-fn quality_str() -> String {
+/// Output format and encoder settings, e.g. "MP3 VBR 0" or "FLAC level 8".
+fn format_description() -> String {
     let a = args();
-    match a.output_type.as_str() {
-        "wav" | "pcm" => "Stereo 16-bit 44100 Hz".into(),
-        "ogg" => "copied as-is from Spotify".into(),
-        "flac" => format!("compression level {}", a.comp),
-        "alac.m4a" => "lossless".into(),
-        _ if a.cbr => format!("CBR {} kbps", a.bitrate),
-        _ => format!("VBR {}", a.vbr),
-    }
-}
-
-fn print_settings() {
-    let a = args();
-    outln!("{GREEN}Spotify Ripper - v{VERSION}{RESET}");
-    outln!(
-        "{YELLOW}  Format:\t\t{RESET}{}",
-        format_name(&a.output_type)
-    );
-    outln!("{YELLOW}  Quality:\t\t{RESET}{}", quality_str());
-    outln!("{YELLOW}  Spotify bitrate:\t{RESET}{} kbps", a.quality);
-    if a.output_type == "mp3" || a.output_type == "aiff" {
-        outln!(
-            "{YELLOW}  ID3 tags:\t\t{RESET}{}",
-            if a.id3_v23 { "v2.3" } else { "v2.4" }
-        );
-    }
-    if a.output_type != "wav" && a.output_type != "pcm" {
-        let cover = if let Some(f) = &a.cover_file {
-            format!("Saved to {f}")
-        } else if let Some(f) = &a.cover_file_and_embed {
-            format!("Embedded + saved to {f}")
+    let encoder = || {
+        if a.cbr {
+            format!("CBR {} kbps", a.bitrate)
         } else {
-            "Embedded".to_owned()
-        };
-        outln!("{YELLOW}  Cover image:\t\t{RESET}{cover}");
-    }
-
-    // check that --stop-after and --resume-after options are valid
-    if a.stop_after
-        .as_deref()
-        .is_some_and(|s| parse_time_str(s).is_none())
-    {
-        outln!("{RED}--stop-after option is not valid{RESET}");
-        std::process::exit(1);
-    }
-    if a.resume_after
-        .as_deref()
-        .is_some_and(|s| parse_time_str(s).is_none())
-    {
-        outln!("{RED}--resume-after option is not valid{RESET}");
-        std::process::exit(1);
-    }
-
-    let unicode = if a.ascii_path_only {
-        "Unicode tags, ASCII file path"
-    } else if a.ascii {
-        "ASCII only"
-    } else {
-        "Yes"
+            format!("VBR {}", a.vbr)
+        }
     };
-    outln!("{YELLOW}  Unicode support:\t{RESET}{unicode}");
+    match a.output_type.as_str() {
+        "wav" => "WAV".into(),
+        "pcm" => "raw PCM".into(),
+        "flac" => format!("FLAC level {}", a.comp),
+        "aiff" => "AIFF".into(),
+        "alac.m4a" => "ALAC".into(),
+        "ogg" => "Ogg Vorbis (native)".into(),
+        "opus" => format!("Opus {}", encoder()),
+        "m4a" => format!("AAC {}", encoder()),
+        _ => format!("MP3 {}", encoder()),
+    }
+}
+
+/// Check that --stop-after and --resume-after are valid.
+fn validate_times() {
+    let a = args();
+    for (option, value) in [
+        ("--stop-after", &a.stop_after),
+        ("--resume-after", &a.resume_after),
+    ] {
+        if value
+            .as_deref()
+            .is_some_and(|s| parse_time_str(s).is_none())
+        {
+            outln!("{RED}{option} option is not valid{RESET}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Two-line header: version and settings, then the format string.
+fn print_header(user: &str) {
+    let a = args();
+    let mut items = vec![format_description(), format!("{} kbps", a.quality)];
+    if a.output_type == "mp3" || a.output_type == "aiff" {
+        items.push(if a.id3_v23 { "ID3v2.3" } else { "ID3v2.4" }.into());
+    }
+    let dir = base_dir().display().to_string();
+    let home = std::env::var("HOME").unwrap_or_default();
+    items.push(match dir.strip_prefix(&home) {
+        Some(rest) if !home.is_empty() => format!("~{rest}"),
+        _ => dir,
+    });
+    items.push(user.to_owned());
+    if a.overwrite {
+        items.push("overwrite".into());
+    }
+    if a.ascii_path_only {
+        items.push("ASCII paths".into());
+    } else if a.ascii {
+        items.push("ASCII".into());
+    }
+    if let Some(f) = &a.cover_file {
+        items.push(format!("cover to {f}"));
+    } else if let Some(f) = &a.cover_file_and_embed {
+        items.push(format!("cover embedded and to {f}"));
+    }
+
+    let sep = if a.ascii { " | " } else { " · " };
     outln!(
-        "{YELLOW}  Output directory:\t{RESET}{}",
-        base_dir().display()
+        "{BOLD}spotify-ripper {VERSION}{RESET}{sep}{}",
+        items.join(sep)
     );
-    outln!(
-        "{YELLOW}  Settings directory:\t{RESET}{}",
-        settings_dir().display()
-    );
-    outln!("{YELLOW}  Format String:\t{RESET}{}", a.format);
-    outln!(
-        "{YELLOW}  Overwrite files:\t{RESET}{}",
-        if a.overwrite { "Yes" } else { "No" }
-    );
+    outln!("{BOLD}Format:{RESET} {}", a.format);
+    if a.verbose {
+        outln!("{BOLD}Settings:{RESET} {}", settings_dir().display());
+    }
 }
 
 /// Check that the encoder for the output format (and ffmpeg) are installed.
@@ -187,7 +174,7 @@ async fn run() -> i32 {
             return login_failed();
         }
     };
-    outln!("{GREEN}Logged in as {}\n{RESET}", spotify.username());
+    print_header(&spotify.username());
 
     terminal::start(!a.has_log);
 
@@ -234,7 +221,7 @@ fn main() {
     set_args(resolved);
 
     check_dependencies();
-    print_settings();
+    validate_times();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
