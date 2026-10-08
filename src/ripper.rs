@@ -580,7 +580,8 @@ impl Ripper {
             let ctx = job.context(&user);
             for (idx, track) in job.tracks.iter().enumerate() {
                 let path = self.format_track_path(&ctx, idx, track);
-                let skip = !a.overwrite && path.exists() && !Self::is_partial(&path, track);
+                let skip = !track.available
+                    || (!a.overwrite && path.exists() && !Self::is_partial(&path, track));
                 totals.push((track.duration, calc_file_size(track.duration), skip));
             }
         }
@@ -658,6 +659,13 @@ impl Ripper {
         };
         let audio_file = self.format_track_path(ctx, idx, track);
         let uri = track.uri();
+
+        if !track.available {
+            outln!("{prefix}{RED}Unavailable {uri} (not available in your region){RESET}");
+            self.post.log_failure(summary_entry(track));
+            progress().track_idx += 1;
+            return true;
+        }
 
         if !a.overwrite && audio_file.exists() {
             if Self::is_partial(&audio_file, track) {

@@ -197,6 +197,9 @@ pub struct TrackInfo {
     pub disc: i32,
     pub artists: Vec<ArtistRef>,
     pub album: Arc<AlbumInfo>,
+    /// Spotify filters the audio files by country, so a track listed without
+    /// files (or alternatives) cannot be played in the user's region.
+    pub available: bool,
 }
 
 impl TrackInfo {
@@ -324,6 +327,7 @@ impl Spotify {
         let track = Track::get(&self.session, &uri).await?;
         let album = self.album(&base62(&track.album.id)).await?;
         Ok(TrackInfo {
+            available: !track.files.is_empty() || !track.alternatives.is_empty(),
             id: id.to_owned(),
             name: track.name,
             duration: track.duration.max(0) as u32,
@@ -480,7 +484,7 @@ impl Spotify {
             }
         }
         if item.files.is_empty() {
-            return Err("Spotify provides no audio files for this track".into());
+            return Err("not available in your region".into());
         }
         Err("track is not available in Ogg Vorbis format".into())
     }
