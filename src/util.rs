@@ -75,7 +75,7 @@ pub fn sanitize_playlist_name(name: &str) -> String {
     name.replace(['\\', '/'], "-")
 }
 
-static ESC_SLASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*/\s*").unwrap());
+static ESC_SLASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*(?:/\s*)+").unwrap());
 static ESC_CHARS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s*[\\/:"*?<>|]+\s*"#).unwrap());
 static ESC_LEADING_DOTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\.+\s*").unwrap());
 static ESC_TRAILING_DOTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\.+$").unwrap());
@@ -217,6 +217,14 @@ mod tests {
     #[test]
     fn escapes_file_name_parts() {
         assert_eq!(escape_filename_part("AC/DC"), "AC & DC");
+        assert_eq!(
+            escape_filename_part("Extermination//Extinction"),
+            "Extermination & Extinction"
+        );
+        assert_eq!(
+            escape_filename_part("Arafel / / Stillsuit"),
+            "Arafel & Stillsuit"
+        );
         assert_eq!(escape_filename_part("What? Why: Now"), "What Why Now");
         assert_eq!(escape_filename_part("...Ready.."), "Ready");
         assert_eq!(escape_filename_part("A...B"), "A.B");
