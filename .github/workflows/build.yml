@@ -9,32 +9,46 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
     strategy:
-      # one .pyz per Python version: the bundle contains compiled extensions
-      # (pycryptodomex, zeroconf, ...) so it only runs on its build version
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12', '3.13', '3.14']
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: ${{ matrix.python-version }}
+          components: rustfmt, clippy
 
-      - name: Install shiv
-        run: python -m pip install --upgrade pip shiv
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
-      - name: Build .pyz
-        run: shiv -c spotify-ripper -o "spotify-ripper-py${{ matrix.python-version }}.pyz" .
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build
+        run: |
+          cargo build --release --locked
+          mkdir dist
+          cp target/release/spotify-ripper dist/spotify-ripper-${{ matrix.arch }}-linux
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: spotify-ripper-py${{ matrix.python-version }}
-          path: spotify-ripper-py${{ matrix.python-version }}.pyz
+          name: spotify-ripper-${{ matrix.arch }}-linux
+          path: dist/spotify-ripper-${{ matrix.arch }}-linux
           if-no-files-found: error
 
   release:
@@ -44,14 +58,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download all .pyz artifacts
-        uses: actions/download-artifact@v4
+      - name: Download the binaries
+        uses: actions/download-artifact@v8
         with:
+          pattern: spotify-ripper-*-linux
           path: dist
           merge-multiple: true
 
-      - name: Create release and attach .pyz files
-        uses: softprops/action-gh-release@v2
+      - name: Create release and attach the binaries
+        uses: softprops/action-gh-release@v3
         with:
-          files: dist/*.pyz
+          files: dist/spotify-ripper-*-linux
           generate_release_notes: true
