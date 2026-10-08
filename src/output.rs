@@ -9,6 +9,7 @@ pub const GREEN: &str = "\x1b[32m";
 pub const RED: &str = "\x1b[31m";
 pub const YELLOW: &str = "\x1b[33m";
 pub const CYAN: &str = "\x1b[36m";
+pub const ORANGE: &str = "\x1b[38;5;208m";
 pub const RESET: &str = "\x1b[39m";
 pub const BRIGHT: &str = "\x1b[1m";
 pub const NORMAL: &str = "\x1b[22m";
@@ -120,6 +121,7 @@ mod tests {
     fn strips_only_colors() {
         assert_eq!(strip_sgr("\x1b[32mok\x1b[39m"), "ok");
         assert_eq!(strip_sgr("\x1b[1m\x1b[36mA\x1b[22m"), "A");
+        assert_eq!(strip_sgr("\x1b[38;5;208mA\x1b[39m"), "A");
         assert_eq!(strip_sgr("a\x1b[2Kb"), "a\x1b[2Kb");
     }
 }

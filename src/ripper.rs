@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use crate::args::args;
 use crate::format::{Context, format_track_string, python_replacement};
-use crate::output::{BRIGHT, CYAN, GREEN, NORMAL, RED, RESET, YELLOW, format_field};
+use crate::output::{BRIGHT, CYAN, GREEN, NORMAL, ORANGE, RED, RESET, YELLOW, format_field};
 use crate::post_actions::{PostActions, rel_path};
 use crate::spotify::{AlbumInfo, PlaylistInfo, Spotify, TrackInfo};
 use crate::tags::{TagData, file_duration, set_metadata_tags};
@@ -661,7 +661,7 @@ impl Ripper {
         let uri = track.uri();
 
         if !track.available {
-            outln!("{prefix}{RED}Unavailable {uri} (not available in your region){RESET}");
+            outln!("{prefix}{ORANGE}Unavailable {uri} (not available in your region){RESET}");
             self.post.log_failure(summary_entry(track));
             progress().track_idx += 1;
             return true;

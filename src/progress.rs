@@ -113,10 +113,14 @@ impl Progress {
             self.status.push("Total:".to_owned());
         }
         self.active = true;
+        // free the bottom rows (scrolling if needed), go back to where the
+        // output continues and confine scrolling to the rows above the block;
+        // setting the scroll region moves the cursor, so save and restore it
         let top = self.term_height - self.reserved;
         write_raw(&format!(
-            "{}\x1b[1;{top}r\x1b[{top};1H",
-            "\n".repeat(self.reserved)
+            "{}\x1b[{}A\x1b7\x1b[1;{top}r\x1b8",
+            "\n".repeat(self.reserved),
+            self.reserved
         ));
         self.render();
     }
@@ -129,7 +133,7 @@ impl Progress {
         }
         self.active = false;
         let row = self.term_height - self.reserved + 1;
-        write_raw(&format!("\x1b[r\x1b[{row};1H\x1b[J"));
+        write_raw(&format!("\x1b7\x1b[r\x1b[{row};1H\x1b[J\x1b8"));
     }
 
     fn render(&self) {
@@ -137,12 +141,12 @@ impl Progress {
             return;
         }
         let top = self.term_height - self.reserved;
-        let mut s = String::new();
+        let mut s = String::from("\x1b7");
         for (i, line) in self.status.iter().enumerate() {
             let line: String = line.chars().take(self.term_width).collect();
             s.push_str(&format!("\x1b[{};1H\x1b[2K{line}", top + 1 + i));
         }
-        s.push_str(&format!("\x1b[{top};1H"));
+        s.push_str("\x1b8");
         write_raw(&s);
     }
 
