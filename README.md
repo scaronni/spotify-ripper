@@ -16,7 +16,8 @@ This advertises the ripper as a Spotify Connect device on your local network. Op
 
 A few notes:
 - A **Spotify Premium** account is required to download the 320 kbps stream; free accounts are limited to 160 kbps and the ripper falls back automatically.
-- Track, album, artist and playlist metadata (and cover art and genres) are fetched over the Spotify protocol. Ripping is done by **track / album / playlist / artist URL or URI**.
+- Track, album, artist and playlist metadata and cover art are fetched over the Spotify protocol. Ripping is done by **track / album / playlist / artist URL or URI**.
+- Spotify no longer provides genres in its metadata, so `--genres` usually finds none.
 
 ## Features
 
@@ -26,7 +27,7 @@ A few notes:
 -  Option to skip or overwrite existing files
 -  Accepts tracks, playlists, albums, and artist URIs
 -  One-time Zeroconf pairing with the official Spotify app; reusable credentials stored for later runs
--  Single self-contained binary, written in Rust
+-  A single binary written in Rust; only the encoders (`ffmpeg`, `lame`, ...) are needed at runtime
 -  Use a config file to specify common command-line options
 -  Helpful progress bar to gauge the time remaining until completion
 -  Keep local files in sync with a Spotify playlist, m3u and wpl playlist file
@@ -48,6 +49,8 @@ spotify:artist:0zfT626RwO6zN3RDYeRit5
 Pass one or more of them on the command line, or put a list of them (one per line, `#` for comments) in a text file and pass that file as a download queue. Nothing else is supported — search, charts and the "liked songs" library are not available.
 
 An **artist** URI rips the artist's full discography (all albums, singles and compilations). Use `--artist-album-type` to narrow that down, e.g. `--artist-album-type album` for studio albums only.
+
+Tracks that are not available in your region (shown grayed out in the Spotify app) are reported as unavailable and listed separately in the summary at the end of the run.
 
 ## Rate limits
 
@@ -113,7 +116,7 @@ Options:
       --id3-v23
           Store ID3 tags using version v2.3 [Default=v2.4]
       --large-cover-art
-          Attempt to retrieve larger cover art from Spotify [Default=300x300]
+          Attempt to retrieve larger cover art from Spotify [Default=640x640]
   -L, --log <LOG>
           Log in a log-friendly format to a file (use - to log to stdout)
       --pcm
@@ -121,7 +124,7 @@ Options:
       --mp4
           Rip songs to MP4/M4A format with Fraunhofer FDK AAC codec instead of MP3
       --normalized-ascii
-          Convert the file name to normalized ASCII with unicodedata.normalize (NFKD)
+          Convert the file name to normalized ASCII with Unicode NFKD normalization (short option: -na)
   -o, --overwrite
           Overwrite existing MP3 files [Default=skip]
       --opus
