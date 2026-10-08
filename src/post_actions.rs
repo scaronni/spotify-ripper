@@ -3,9 +3,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::args::args;
-use crate::output::{GREEN, RED, RESET, YELLOW};
 use crate::outln;
-use crate::util::{base_dir, cache_dir, change_file_extension, rm_file, sanitize_playlist_name, to_ascii};
+use crate::output::{GREEN, RED, RESET, YELLOW};
+use crate::util::{
+    base_dir, cache_dir, change_file_extension, rm_file, sanitize_playlist_name, to_ascii,
+};
 
 /// A track as listed in the summary: (URI, "Artist - Title").
 type Entry = (String, String);
@@ -72,7 +74,8 @@ impl PostActions {
     }
 
     pub fn print_summary(&self) {
-        let (ripped, skipped, failed) = (self.success.len(), self.skipped.len(), self.failure.len());
+        let (ripped, skipped, failed) =
+            (self.success.len(), self.skipped.len(), self.failure.len());
         if ripped + skipped + failed == 0 {
             return;
         }
@@ -94,7 +97,9 @@ impl PostActions {
 
     fn playlist_path(name: &str, ext: &str) -> PathBuf {
         let name = sanitize_playlist_name(&to_ascii(name));
-        PathBuf::from(to_ascii(&base_dir().join(format!("{name}.{ext}")).to_string_lossy()))
+        PathBuf::from(to_ascii(
+            &base_dir().join(format!("{name}.{ext}")).to_string_lossy(),
+        ))
     }
 
     /// `name` is the playlist name, or "artist - album" for an album URI.
@@ -103,14 +108,20 @@ impl PostActions {
             return;
         }
         let path = Self::playlist_path(name.unwrap_or("0_playlist"), "m3u");
-        outln!("{GREEN}Creating playlist m3u file {}{RESET}", path.display());
+        outln!(
+            "{GREEN}Creating playlist m3u file {}{RESET}",
+            path.display()
+        );
         let content: String = files
             .iter()
             .filter(|f| f.exists())
             .map(|f| rel_path(f) + "\n")
             .collect();
         if let Err(e) = fs::write(&path, content) {
-            outln!("{YELLOW}Warning: cannot write {}: {e}{RESET}", path.display());
+            outln!(
+                "{YELLOW}Warning: cannot write {}: {e}{RESET}",
+                path.display()
+            );
         }
     }
 
@@ -119,7 +130,10 @@ impl PostActions {
             return;
         };
         let path = Self::playlist_path(name, "wpl");
-        outln!("{GREEN}Creating playlist wpl file {}{RESET}", path.display());
+        outln!(
+            "{GREEN}Creating playlist wpl file {}{RESET}",
+            path.display()
+        );
 
         let escape = |s: &str| {
             s.replace('&', "&amp;")
@@ -132,7 +146,10 @@ impl PostActions {
         let mut s = String::new();
         s.push_str("<?wpl version=\"1.0\"?>\n<smil>\n\t<head>\n");
         s.push_str("\t\t<meta name=\"Generator\" content=\"Microsoft Windows Media Player -- 12.0.7601.18526\"/>\n");
-        s.push_str(&format!("\t\t<meta name=\"ItemCount\" content=\"{}\"/>\n", files.len()));
+        s.push_str(&format!(
+            "\t\t<meta name=\"ItemCount\" content=\"{}\"/>\n",
+            files.len()
+        ));
         s.push_str(&format!("\t\t<author>{}</author>\n", escape(user)));
         s.push_str(&format!(
             "\t\t<title>{}</title>\n",
@@ -140,11 +157,17 @@ impl PostActions {
         ));
         s.push_str("\t</head>\n\t<body>\n\t\t<seq>\n");
         for f in files {
-            s.push_str(&format!("\t\t\t<media src=\"{}\"/>\n", escape(&rel_path(f))));
+            s.push_str(&format!(
+                "\t\t\t<media src=\"{}\"/>\n",
+                escape(&rel_path(f))
+            ));
         }
         s.push_str("\t\t</seq>\n\t</body>\n</smil>\n");
         if let Err(e) = fs::write(&path, s) {
-            outln!("{YELLOW}Warning: cannot write {}: {e}{RESET}", path.display());
+            outln!(
+                "{YELLOW}Warning: cannot write {}: {e}{RESET}",
+                path.display()
+            );
         }
     }
 

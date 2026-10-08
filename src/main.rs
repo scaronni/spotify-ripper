@@ -52,7 +52,10 @@ fn quality_str() -> String {
 fn print_settings() {
     let a = args();
     outln!("{GREEN}Spotify Ripper - v{VERSION}{RESET}");
-    outln!("{YELLOW}  Format:\t\t{RESET}{}", format_name(&a.output_type));
+    outln!(
+        "{YELLOW}  Format:\t\t{RESET}{}",
+        format_name(&a.output_type)
+    );
     outln!("{YELLOW}  Quality:\t\t{RESET}{}", quality_str());
     outln!("{YELLOW}  Spotify bitrate:\t{RESET}{} kbps", a.quality);
     if a.output_type == "mp3" || a.output_type == "aiff" {
@@ -73,11 +76,17 @@ fn print_settings() {
     }
 
     // check that --stop-after and --resume-after options are valid
-    if a.stop_after.as_deref().is_some_and(|s| parse_time_str(s).is_none()) {
+    if a.stop_after
+        .as_deref()
+        .is_some_and(|s| parse_time_str(s).is_none())
+    {
         outln!("{RED}--stop-after option is not valid{RESET}");
         std::process::exit(1);
     }
-    if a.resume_after.as_deref().is_some_and(|s| parse_time_str(s).is_none()) {
+    if a.resume_after
+        .as_deref()
+        .is_some_and(|s| parse_time_str(s).is_none())
+    {
         outln!("{RED}--resume-after option is not valid{RESET}");
         std::process::exit(1);
     }
@@ -90,8 +99,14 @@ fn print_settings() {
         "Yes"
     };
     outln!("{YELLOW}  Unicode support:\t{RESET}{unicode}");
-    outln!("{YELLOW}  Output directory:\t{RESET}{}", base_dir().display());
-    outln!("{YELLOW}  Settings directory:\t{RESET}{}", settings_dir().display());
+    outln!(
+        "{YELLOW}  Output directory:\t{RESET}{}",
+        base_dir().display()
+    );
+    outln!(
+        "{YELLOW}  Settings directory:\t{RESET}{}",
+        settings_dir().display()
+    );
     outln!("{YELLOW}  Format String:\t{RESET}{}", a.format);
     outln!(
         "{YELLOW}  Overwrite files:\t{RESET}{}",

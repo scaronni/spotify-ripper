@@ -22,7 +22,12 @@ fn zfill(s: &str, width: usize) -> String {
     format!("{s:0>width$}")
 }
 
-pub fn format_track_string(ctx: &Context, format_string: &str, idx: usize, track: &TrackInfo) -> String {
+pub fn format_track_string(
+    ctx: &Context,
+    format_string: &str,
+    idx: usize,
+    track: &TrackInfo,
+) -> String {
     let a = args();
     let album = ctx.album.unwrap_or(&track.album);
     let esc = |s: &str| to_ascii(&escape_filename_part(s));
@@ -141,8 +146,17 @@ pub fn format_track_string(ctx: &Context, format_string: &str, idx: usize, track
         ("uri", track_uri),
     ];
     const FILL_TAGS: [&str; 11] = [
-        "idx", "index", "track_num", "track_idx", "track_index", "disc_num", "disc_idx",
-        "disc_index", "smart_track_num", "smart_track_idx", "smart_track_index",
+        "idx",
+        "index",
+        "track_num",
+        "track_idx",
+        "track_index",
+        "disc_num",
+        "disc_idx",
+        "disc_index",
+        "smart_track_num",
+        "smart_track_idx",
+        "smart_track_index",
     ];
     const PREFIX_TAGS: [&str; 2] = ["feat_artists", "featuring_artists"];
     const PAREN_TAGS: [&str; 2] = ["track_name", "track"];
@@ -156,7 +170,12 @@ pub fn format_track_string(ctx: &Context, format_string: &str, idx: usize, track
             if let Some(c) = re.captures(&s) {
                 let m = c.get(0).unwrap();
                 let width: usize = c[1].parse().unwrap_or(0);
-                s = format!("{}{}{}", &s[..m.start()], zfill(value, width), &s[m.end()..]);
+                s = format!(
+                    "{}{}{}",
+                    &s[..m.start()],
+                    zfill(value, width),
+                    &s[m.end()..]
+                );
             }
         }
 
@@ -183,7 +202,11 @@ pub fn format_track_string(ctx: &Context, format_string: &str, idx: usize, track
                     Some(c) => format!("{} ({})", &c[1], &c[2]),
                     None => value.clone(),
                 };
-                s = format!("{}{replacement}{}", &s[..start], &s[start + pattern.len()..]);
+                s = format!(
+                    "{}{replacement}{}",
+                    &s[..start],
+                    &s[start + pattern.len()..]
+                );
             }
         }
     }

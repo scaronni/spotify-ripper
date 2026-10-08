@@ -241,10 +241,7 @@ impl Progress {
             "{label:<BAR_LABEL_WIDTH$} [{}{}] {}",
             "=".repeat(x),
             " ".repeat(w - x),
-            format_time(
-                (pos_ms / 1000.0) as u64,
-                Some((dur_ms / 1000.0) as u64)
-            )
+            format_time((pos_ms / 1000.0) as u64, Some((dur_ms / 1000.0) as u64))
         );
         if let Some(eta) = eta {
             s.push_str(&format!(
@@ -269,8 +266,12 @@ impl Progress {
             self.last_eta_calc = Some(Instant::now());
             self.eta_calc();
         }
-        self.status[2] =
-            self.time_bar("Progress:", self.song_position, self.song_duration, self.song_eta);
+        self.status[2] = self.time_bar(
+            "Progress:",
+            self.song_position,
+            self.song_duration,
+            self.song_eta,
+        );
         if self.show_total {
             let total_position = self.total_position + self.song_position;
             self.status[3] = self.time_bar(

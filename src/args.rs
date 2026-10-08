@@ -142,8 +142,14 @@ pub fn command(version: &'static str) -> Command {
 
 /// argparse accepted the two-letter "-na" short option, clap does not.
 pub fn normalize_argv(argv: impl Iterator<Item = String>) -> Vec<String> {
-    argv.map(|a| if a == "-na" { "--normalized-ascii".to_owned() } else { a })
-        .collect()
+    argv.map(|a| {
+        if a == "-na" {
+            "--normalized-ascii".to_owned()
+        } else {
+            a
+        }
+    })
+    .collect()
 }
 
 struct Resolver<'a> {
@@ -152,12 +158,12 @@ struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
-    fn from_cli(&self, id: &str) -> bool {
+    fn on_cli(&self, id: &str) -> bool {
         self.matches.value_source(id) == Some(clap::parser::ValueSource::CommandLine)
     }
 
     fn flag(&self, id: &str) -> bool {
-        if self.from_cli(id) {
+        if self.on_cli(id) {
             return self.matches.get_flag(id);
         }
         match self.config.get(id) {
@@ -169,7 +175,7 @@ impl Resolver<'_> {
     }
 
     fn opt_str(&self, id: &str) -> Option<String> {
-        if self.from_cli(id) {
+        if self.on_cli(id) {
             return self.matches.get_one::<String>(id).cloned();
         }
         match self.config.get(id) {
@@ -185,7 +191,7 @@ impl Resolver<'_> {
     }
 
     fn number(&self, id: &str, default: u64) -> u64 {
-        if self.from_cli(id) {
+        if self.on_cli(id) {
             if let Ok(Some(v)) = self.matches.try_get_one::<u64>(id) {
                 return *v;
             }
@@ -201,7 +207,7 @@ impl Resolver<'_> {
     }
 
     fn list(&self, id: &str) -> Option<Vec<String>> {
-        if self.from_cli(id) {
+        if self.on_cli(id) {
             return self
                 .matches
                 .get_many::<String>(id)
@@ -334,7 +340,10 @@ mod tests {
         let mut config = default_config();
         config.insert("quality".into(), Value::from("160"));
         config.insert("all_artists".into(), Value::from(true));
-        let a = parse(&["spotify-ripper", "-Q", "96", "spotify:track:x"], config.clone());
+        let a = parse(
+            &["spotify-ripper", "-Q", "96", "spotify:track:x"],
+            config.clone(),
+        );
         assert_eq!(a.quality, "96");
         assert!(a.all_artists);
         assert_eq!(a.uri, ["spotify:track:x"]);
@@ -350,7 +359,10 @@ mod tests {
         assert_eq!((a.output_type.as_str(), a.vbr.as_str()), ("ogg", "9"));
         let a = parse(&["spotify-ripper", "x"], default_config());
         assert_eq!(a.output_type, "mp3");
-        assert_eq!(a.format, "{album_artist}/{album}/{track_num:2} - {track_name}.{ext}");
+        assert_eq!(
+            a.format,
+            "{album_artist}/{album}/{track_num:2} - {track_name}.{ext}"
+        );
         assert_eq!(a.retries, 5);
         let a = parse(&["spotify-ripper", "-na", "--flat", "x"], default_config());
         assert!(a.normalized_ascii);
@@ -365,7 +377,10 @@ mod tests {
 
     #[test]
     fn replace_takes_several_patterns() {
-        let a = parse(&["spotify-ripper", "-R", " /_", r"\-/.", "--", "x"], default_config());
+        let a = parse(
+            &["spotify-ripper", "-R", " /_", r"\-/.", "--", "x"],
+            default_config(),
+        );
         assert_eq!(a.replace.unwrap(), [" /_", r"\-/."]);
     }
 }

@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use crate::args::args;
 use crate::format::{Context, format_track_string};
-use crate::output::{RESET, YELLOW, format_field};
 use crate::outln;
+use crate::output::{RESET, YELLOW, format_field};
 use crate::spotify::TrackInfo;
 use crate::util::{format_size, format_time, to_ascii_with};
 
@@ -134,10 +134,17 @@ pub fn set_metadata_tags(
             if tag_type == TagType::Id3v2 {
                 tag.remove_key(ItemKey::Genre);
                 for genre in genres {
-                    tag.push(TagItem::new(ItemKey::Genre, ItemValue::Text(tag_str(genre))));
+                    tag.push(TagItem::new(
+                        ItemKey::Genre,
+                        ItemValue::Text(tag_str(genre)),
+                    ));
                 }
             } else {
-                let joined = genres.iter().map(|g| tag_str(g)).collect::<Vec<_>>().join(", ");
+                let joined = genres
+                    .iter()
+                    .map(|g| tag_str(g))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 tag.insert(TagItem::new(ItemKey::Genre, ItemValue::Text(joined)));
             }
         }

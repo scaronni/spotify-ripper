@@ -192,22 +192,53 @@ fn encoder_command(audio_file: &Path) -> Option<Command> {
     match a.output_type.as_str() {
         "flac" => {
             cmd = Command::new("flac");
-            cmd.args(["-f", &format!("-{}", a.comp), "--silent", "--endian", "little"])
-                .args(["--channels", "2", "--bps", "16", "--sample-rate", &rate])
-                .args(["--sign", "signed", "-o"])
-                .arg(file)
-                .arg("-");
+            cmd.args([
+                "-f",
+                &format!("-{}", a.comp),
+                "--silent",
+                "--endian",
+                "little",
+            ])
+            .args(["--channels", "2", "--bps", "16", "--sample-rate", &rate])
+            .args(["--sign", "signed", "-o"])
+            .arg(file)
+            .arg("-");
         }
         "aiff" => {
             cmd = Command::new("sox");
-            cmd.args(["-q", "--endian", "little", "--channels", "2", "--bits", "16"])
-                .args(["--rate", &rate, "--encoding", "signed-integer", "-t", "raw", "-"])
-                .arg(file);
+            cmd.args([
+                "-q",
+                "--endian",
+                "little",
+                "--channels",
+                "2",
+                "--bits",
+                "16",
+            ])
+            .args([
+                "--rate",
+                &rate,
+                "--encoding",
+                "signed-integer",
+                "-t",
+                "raw",
+                "-",
+            ])
+            .arg(file);
         }
         "alac.m4a" => {
             cmd = Command::new("ffmpeg");
             cmd.args(["-nostats", "-loglevel", "0", "-f", "s16le", "-ar", &rate])
-                .args(["-ac", "2", "-channel_layout", "stereo", "-i", "-", "-acodec", "alac"])
+                .args([
+                    "-ac",
+                    "2",
+                    "-channel_layout",
+                    "stereo",
+                    "-i",
+                    "-",
+                    "-acodec",
+                    "alac",
+                ])
                 .arg(file);
         }
         "opus" => {
@@ -253,7 +284,9 @@ fn prepare_sinks(audio_file: &Path) -> io::Result<Sinks> {
     let mut sinks = Sinks::default();
 
     if a.output_type == "wav" || a.plus_wav {
-        sinks.wav = Some(WavWriter::create(&change_file_extension(audio_file, "wav"))?);
+        sinks.wav = Some(WavWriter::create(&change_file_extension(
+            audio_file, "wav",
+        ))?);
     }
     if a.output_type == "pcm" || a.plus_pcm {
         let path = change_file_extension(audio_file, "pcm");
@@ -348,7 +381,11 @@ impl Ripper {
             job.tracks = self.load_tracks(&[id]).await;
         } else if uri.starts_with("spotify:playlist:") {
             let playlist = self.spotify.playlist(&id).await?;
-            let ids: Vec<String> = playlist.tracks.iter().map(|t| uri_to_id(t).to_owned()).collect();
+            let ids: Vec<String> = playlist
+                .tracks
+                .iter()
+                .map(|t| uri_to_id(t).to_owned())
+                .collect();
             job.tracks = self.load_tracks(&ids).await;
             job.playlist = Some(playlist);
         } else if uri.starts_with("spotify:album:") {
@@ -452,7 +489,10 @@ impl Ripper {
         if let Some(dir) = path.parent()
             && let Err(e) = fs::create_dir_all(dir)
         {
-            outln!("{YELLOW}Warning: cannot create {}: {e}{RESET}", dir.display());
+            outln!(
+                "{YELLOW}Warning: cannot create {}: {e}{RESET}",
+                dir.display()
+            );
         }
 
         self.path_cache.insert(uri, path.clone());
@@ -479,7 +519,10 @@ impl Ripper {
         };
         let stop_time = *self.stop_time.get_or_insert_with(|| {
             let t = parse_time_str(stop_after).expect("validated at startup");
-            outln!("{YELLOW}Script will stop after {}{RESET}", t.format("%H:%M"));
+            outln!(
+                "{YELLOW}Script will stop after {}{RESET}",
+                t.format("%H:%M")
+            );
             t
         });
         if stop_time >= Local::now() {
@@ -491,7 +534,10 @@ impl Ripper {
         );
         match a.resume_after.as_deref().and_then(parse_time_str) {
             Some(resume_time) => {
-                outln!("{YELLOW}Script will resume at {}{RESET}", resume_time.format("%H:%M"));
+                outln!(
+                    "{YELLOW}Script will resume at {}{RESET}",
+                    resume_time.format("%H:%M")
+                );
                 while Local::now() < resume_time && !aborted() {
                     std::thread::sleep(Duration::from_secs(1));
                 }
@@ -557,7 +603,9 @@ impl Ripper {
             }
             let ctx = job.context(&user);
 
-            if a.playlist_sync && let Some(playlist) = &job.playlist {
+            if a.playlist_sync
+                && let Some(playlist) = &job.playlist
+            {
                 let lib: Vec<(String, String)> = job
                     .tracks
                     .iter()
@@ -590,7 +638,8 @@ impl Ripper {
                 .collect();
             let name = job.playlist_name();
             self.post.create_playlist_m3u(name.as_deref(), &files);
-            self.post.create_playlist_wpl(name.as_deref(), &files, &user);
+            self.post
+                .create_playlist_wpl(name.as_deref(), &files, &user);
         }
 
         // done -- release the pinned status block before the summary
@@ -615,7 +664,10 @@ impl Ripper {
                 outln!("Overwriting partial file");
             } else {
                 outln!("{prefix}{CYAN}{BRIGHT}Skipping {uri}{NORMAL}{RESET}");
-                outln!("{}", format_field(&indent, "File name", rel_path(&audio_file)));
+                outln!(
+                    "{}",
+                    format_field(&indent, "File name", rel_path(&audio_file))
+                );
                 self.post.log_skipped(summary_entry(track));
                 progress().track_idx += 1;
                 return true;
@@ -623,10 +675,15 @@ impl Ripper {
         }
 
         outln!("{prefix}{GREEN}{BRIGHT}Ripping {uri}{NORMAL}{RESET}");
-        outln!("{}", format_field(&indent, "File name", rel_path(&audio_file)));
+        outln!(
+            "{}",
+            format_field(&indent, "File name", rel_path(&audio_file))
+        );
 
         let mut sinks = Sinks::default();
-        let result = self.rip_track(track, &audio_file, &indent, &mut sinks).await;
+        let result = self
+            .rip_track(track, &audio_file, &indent, &mut sinks)
+            .await;
         RIPPING.store(false, Ordering::Relaxed);
 
         if let Err(e) = result {
@@ -684,7 +741,12 @@ impl Ripper {
 
         let genres = match a.genres.as_deref() {
             Some("artist") => match track.artists.first() {
-                Some(artist) => self.spotify.artist(&artist.id).await.ok().map(|a| a.genres.clone()),
+                Some(artist) => self
+                    .spotify
+                    .artist(&artist.id)
+                    .await
+                    .ok()
+                    .map(|a| a.genres.clone()),
                 None => None,
             },
             Some("album") => Some(track.album.genres.clone()),

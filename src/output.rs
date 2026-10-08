@@ -73,7 +73,11 @@ fn strip_sgr(s: &str) -> String {
 /// Write `s` as-is, apart from the color stripping.
 pub fn write(s: &str) {
     let mut out = output().lock().unwrap_or_else(|e| e.into_inner());
-    let text = if out.strip { strip_sgr(s) } else { s.to_owned() };
+    let text = if out.strip {
+        strip_sgr(s)
+    } else {
+        s.to_owned()
+    };
     let _ = out.writer.write_all(text.as_bytes());
     let _ = out.writer.flush();
 }

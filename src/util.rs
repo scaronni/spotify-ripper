@@ -7,11 +7,13 @@ use std::sync::LazyLock;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::args::args;
-use crate::output::{RESET, YELLOW};
 use crate::outln;
+use crate::output::{RESET, YELLOW};
 
 fn home_dir() -> PathBuf {
-    env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 pub fn expand_user(path: &str) -> PathBuf {
@@ -75,8 +77,7 @@ pub fn sanitize_playlist_name(name: &str) -> String {
 }
 
 static ESC_SLASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*/\s*").unwrap());
-static ESC_CHARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\s*[\\/:"*?<>|]+\s*"#).unwrap());
+static ESC_CHARS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s*[\\/:"*?<>|]+\s*"#).unwrap());
 static ESC_LEADING_DOTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\.+\s*").unwrap());
 static ESC_TRAILING_DOTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\.+$").unwrap());
 static ESC_DOT_RUNS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.{2,}").unwrap());

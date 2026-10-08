@@ -8,8 +8,8 @@ use std::io::{IsTerminal, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
-use crate::output::{RED, RESET};
 use crate::outln;
+use crate::output::{RED, RESET};
 use crate::progress::Progress;
 
 pub static ABORT: AtomicBool = AtomicBool::new(false);
@@ -52,7 +52,11 @@ fn enter_cbreak() {
 /// Restore the terminal: stdin mode and the full-screen scroll region.
 pub fn restore() {
     progress().teardown();
-    if let Some(t) = SAVED_TERMIOS.lock().unwrap_or_else(|e| e.into_inner()).take() {
+    if let Some(t) = SAVED_TERMIOS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
         unsafe {
             libc::tcsetattr(libc::STDIN_FILENO, libc::TCSADRAIN, &t);
         }

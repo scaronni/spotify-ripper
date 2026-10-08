@@ -5,8 +5,8 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::output::{RESET, YELLOW};
 use crate::outln;
+use crate::output::{RESET, YELLOW};
 use crate::spotify::PlaylistInfo;
 use crate::util::{settings_dir, to_ascii};
 
@@ -59,9 +59,7 @@ pub fn sync_playlist(playlist: &PlaylistInfo, new_lib: &[(String, String)]) {
         }
         match new_lib.iter().find(|(u, _)| u == uri) {
             Some((_, new_path)) if new_path != file_path => {
-                outln!(
-                    "{YELLOW}Renaming file:{RESET}\n  From: {file_path}\n  To:   {new_path}"
-                );
+                outln!("{YELLOW}Renaming file:{RESET}\n  From: {file_path}\n  To:   {new_path}");
                 if let Err(e) = fs::rename(file_path, new_path) {
                     outln!("{YELLOW}Warning: {e}{RESET}");
                 }

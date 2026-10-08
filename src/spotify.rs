@@ -158,7 +158,10 @@ pub struct AlbumInfo {
 
 impl AlbumInfo {
     pub fn artist_name(&self) -> String {
-        self.artists.first().map(|a| a.name.clone()).unwrap_or_default()
+        self.artists
+            .first()
+            .map(|a| a.name.clone())
+            .unwrap_or_default()
     }
 
     pub fn num_discs(&self) -> i32 {
@@ -202,7 +205,10 @@ impl TrackInfo {
     }
 
     pub fn artist_name(&self) -> String {
-        self.artists.first().map(|a| a.name.clone()).unwrap_or_default()
+        self.artists
+            .first()
+            .map(|a| a.name.clone())
+            .unwrap_or_default()
     }
 
     pub fn artist_names(&self) -> String {
@@ -517,7 +523,11 @@ mod tests {
             name: "A".into(),
             artists: vec![],
             year: 2020,
-            covers: vec![(1, FileId([1; 20])), (2, FileId([2; 20])), (3, FileId([3; 20]))],
+            covers: vec![
+                (1, FileId([1; 20])),
+                (2, FileId([2; 20])),
+                (3, FileId([3; 20])),
+            ],
             discs: vec![(1, vec![]), (2, vec![])],
             copyrights: vec![],
             genres: vec![],

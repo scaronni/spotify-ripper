@@ -16,6 +16,12 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
       - name: Run tests
         run: cargo test --locked
 
