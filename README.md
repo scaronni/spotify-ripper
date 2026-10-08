@@ -17,7 +17,6 @@ This advertises the ripper as a Spotify Connect device on your local network. Op
 A few notes:
 - A **Spotify Premium** account is required to download the 320 kbps stream; free accounts are limited to 160 kbps and the ripper falls back automatically.
 - Track, album, artist and playlist metadata and cover art are fetched over the Spotify protocol. Ripping is done by **track / album / playlist / artist URL or URI**.
-- Spotify no longer provides genres in its metadata, so `--genres` usually finds none.
 
 ## Features
 
@@ -109,8 +108,6 @@ Options:
           Save all songs to a single directory (overrides --format option)
       --flat-with-index
           Similar to --flat [-f] but includes the playlist index at the start of the song file
-  -g, --genres <GENRES>
-          Attempt to retrieve genre information from Spotify [Default=skip] [possible values: artist, album]
       --grouping <GROUPING>
           Set grouping metadata tag to all songs. Can include same tags as --format.
       --id3-v23

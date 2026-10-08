@@ -14,7 +14,7 @@ use crate::format::{Context, format_track_string, python_replacement};
 use crate::output::{BRIGHT, CYAN, GREEN, NORMAL, ORANGE, RED, RESET, YELLOW, format_field};
 use crate::post_actions::{PostActions, rel_path};
 use crate::spotify::{AlbumInfo, PlaylistInfo, Spotify, TrackInfo};
-use crate::tags::{TagData, file_duration, set_metadata_tags};
+use crate::tags::{file_duration, set_metadata_tags};
 use crate::terminal::{RIPPING, SKIP, aborted, progress, skipped};
 use crate::util::{
     base_dir, calc_file_size, change_file_extension, format_size, parse_time_str, rm_file,
@@ -729,8 +729,8 @@ impl Ripper {
         }
 
         // update tags and embed front cover image
-        let data = self.tag_data(track).await;
-        set_metadata_tags(ctx, &audio_file, idx, track, data, &indent);
+        let image = self.cover_image(track).await;
+        set_metadata_tags(ctx, &audio_file, idx, track, image, &indent);
         self.post.log_success(summary_entry(track));
 
         // pace requests to avoid hitting audio-key rate limits
@@ -738,37 +738,20 @@ impl Ripper {
         true
     }
 
-    async fn tag_data(&self, track: &TrackInfo) -> TagData {
+    /// Album cover to embed or save, if any.
+    async fn cover_image(&self, track: &TrackInfo) -> Option<Vec<u8>> {
         let a = args();
         if a.output_type == "wav" || a.output_type == "pcm" {
-            return TagData {
-                genres: None,
-                image: None,
-            };
+            return None;
         }
-
-        let genres = match a.genres.as_deref() {
-            Some("artist") => match track.artists.first() {
-                Some(artist) => self
-                    .spotify
-                    .artist(&artist.id)
-                    .await
-                    .ok()
-                    .map(|a| a.genres.clone()),
-                None => None,
-            },
-            Some("album") => Some(track.album.genres.clone()),
-            _ => None,
-        };
-
-        let mut image = None;
-        if let Some(url) = track.album.cover_url(a.large_cover_art) {
-            match self.spotify.fetch_url(&url).await {
-                Ok(data) => image = Some(data.to_vec()),
-                Err(e) => outln!("{YELLOW}Failed to retrieve cover art: {e}{RESET}"),
+        let url = track.album.cover_url(a.large_cover_art)?;
+        match self.spotify.fetch_url(&url).await {
+            Ok(data) => Some(data.to_vec()),
+            Err(e) => {
+                outln!("{YELLOW}Failed to retrieve cover art: {e}{RESET}");
+                None
             }
         }
-        TagData { genres, image }
     }
 
     async fn rip_track(

@@ -30,7 +30,6 @@ pub fn default_config() -> Map<String, Value> {
         "stereo_mode": null,
         // metadata
         "all_artists": false,
-        "genres": null,
         "id3_v23": false,
         "large_cover_art": false,
         "comment": null,

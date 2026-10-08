@@ -15,12 +15,6 @@ use crate::output::{RESET, YELLOW, format_field};
 use crate::spotify::TrackInfo;
 use crate::util::{format_size, format_time, to_ascii_with};
 
-/// Everything needed to tag a ripped file.
-pub struct TagData {
-    pub genres: Option<Vec<String>>,
-    pub image: Option<Vec<u8>>,
-}
-
 /// Duration of an existing audio file, if it can be read.
 pub fn file_duration(path: &Path) -> Option<Duration> {
     let tagged = lofty::read_from_path(path).ok()?;
@@ -32,7 +26,7 @@ pub fn set_metadata_tags(
     audio_file: &Path,
     idx: usize,
     track: &TrackInfo,
-    data: TagData,
+    image: Option<Vec<u8>>,
     indent: &str,
 ) {
     let a = args();
@@ -73,12 +67,11 @@ pub fn set_metadata_tags(
         .grouping
         .as_ref()
         .map(|g| format_track_string(ctx, g, idx, track));
-    let genres = data.genres.filter(|g| !g.is_empty());
     let year = track.album.year.to_string();
 
     // write the cover image to a file if requested, and decide on embedding
     let mut embed_image = None;
-    if let Some(image) = data.image {
+    if let Some(image) = image {
         let write_image = |name: &str| {
             let cover = audio_file.parent().unwrap_or(Path::new(".")).join(name);
             if !cover.exists()
@@ -130,24 +123,6 @@ pub fn set_metadata_tags(
         if let Some(grouping) = &grouping {
             set(ItemKey::ContentGroup, tag_str(grouping));
         }
-        if let Some(genres) = &genres {
-            if tag_type == TagType::Id3v2 {
-                tag.remove_key(ItemKey::Genre);
-                for genre in genres {
-                    tag.push(TagItem::new(
-                        ItemKey::Genre,
-                        ItemValue::Text(tag_str(genre)),
-                    ));
-                }
-            } else {
-                let joined = genres
-                    .iter()
-                    .map(|g| tag_str(g))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                tag.insert(TagItem::new(ItemKey::Genre, ItemValue::Text(joined)));
-            }
-        }
         if let Some(image) = embed_image {
             tag.remove_picture_type(PictureType::CoverFront);
             tag.push_picture(
@@ -184,10 +159,6 @@ pub fn set_metadata_tags(
     field("Track number", &format!("{}/{num_tracks}", track.number));
     field("Disc number", &format!("{}/{num_discs}", track.disc));
     field("Year", &year);
-    if let Some(genres) = &genres {
-        let genres: Vec<_> = genres.iter().map(|g| to_ascii_with(g, false)).collect();
-        field("Genres", &genres.join(" / "));
-    }
     if let Some(comment) = &comment {
         field("Comment", &to_ascii_with(comment, replace));
     }

@@ -18,7 +18,7 @@ use librespot_discovery::Discovery;
 use librespot_metadata::audio::{AudioFileFormat, AudioItem};
 use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
 use librespot_protocol::authentication::AuthenticationType;
-use protobuf::{Message, UnknownValueRef};
+use protobuf::Message;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
@@ -40,10 +40,6 @@ const IMAGE_URL: &str = "https://i.scdn.co/image/";
 
 /// Spotify prepends a custom header (with normalisation data) to its Ogg files.
 const SPOTIFY_OGG_HEADER_END: u64 = 0xa7;
-
-// Field numbers of the genre lists that Spotify's metadata used to carry.
-const ARTIST_GENRE_FIELD: u32 = 9;
-const ALBUM_GENRE_FIELD: u32 = 8;
 
 // ---------------------------------------------------------------------------
 // Credentials, stored in the format used by spotify-ripper 3.x
@@ -140,7 +136,6 @@ pub async fn login_via_zeroconf(device_name: &str, timeout: Duration) -> Result<
 #[derive(Debug, Clone)]
 pub struct ArtistRef {
     pub name: String,
-    pub id: String,
 }
 
 #[derive(Debug)]
@@ -153,7 +148,6 @@ pub struct AlbumInfo {
     /// (disc number, track ids) in album order.
     pub discs: Vec<(i32, Vec<SpotifyUri>)>,
     pub copyrights: Vec<String>,
-    pub genres: Vec<String>,
 }
 
 impl AlbumInfo {
@@ -225,7 +219,6 @@ impl TrackInfo {
 
 #[derive(Debug)]
 pub struct ArtistInfo {
-    pub genres: Vec<String>,
     /// Current release of every album, keyed by "album", "single",
     /// "compilation" and "appears_on".
     pub albums: HashMap<&'static str, Vec<String>>,
@@ -247,24 +240,8 @@ fn base62(uri: &SpotifyUri) -> String {
         .unwrap_or_default()
 }
 
-fn artist_refs<'a>(artists: impl Iterator<Item = (&'a SpotifyUri, &'a String)>) -> Vec<ArtistRef> {
-    artists
-        .map(|(id, name)| ArtistRef {
-            name: name.clone(),
-            id: base62(id),
-        })
-        .collect()
-}
-
-fn unknown_strings(fields: &protobuf::UnknownFields, number: u32) -> Vec<String> {
-    fields
-        .iter()
-        .filter(|(n, _)| *n == number)
-        .filter_map(|(_, v)| match v {
-            UnknownValueRef::LengthDelimited(b) => String::from_utf8(b.to_vec()).ok(),
-            _ => None,
-        })
-        .collect()
+fn artist_refs<'a>(names: impl Iterator<Item = &'a String>) -> Vec<ArtistRef> {
+    names.map(|name| ArtistRef { name: name.clone() }).collect()
 }
 
 pub fn parse_id(kind: &str, id: &str) -> Result<SpotifyUri> {
@@ -333,7 +310,7 @@ impl Spotify {
             duration: track.duration.max(0) as u32,
             number: track.number,
             disc: track.disc_number,
-            artists: artist_refs(track.artists.iter().map(|a| (&a.id, &a.name))),
+            artists: artist_refs(track.artists.iter().map(|a| &a.name)),
             album,
         })
     }
@@ -343,10 +320,7 @@ impl Spotify {
             return Ok(album.clone());
         }
         let uri = parse_id("album", id)?;
-        let response = Album::request(&self.session, &uri).await?;
-        let msg = <Album as Metadata>::Message::parse_from_bytes(&response)?;
-        let genres = unknown_strings(msg.special_fields.unknown_fields(), ALBUM_GENRE_FIELD);
-        let album = Album::parse(&msg, &uri)?;
+        let album = Album::get(&self.session, &uri).await?;
 
         let images = if album.cover_group.is_empty() {
             &album.covers
@@ -355,7 +329,7 @@ impl Spotify {
         };
         let info = Arc::new(AlbumInfo {
             name: album.name.clone(),
-            artists: artist_refs(album.artists.iter().map(|a| (&a.id, &a.name))),
+            artists: artist_refs(album.artists.iter().map(|a| &a.name)),
             year: album.date.as_utc().year(),
             covers: images.iter().map(|i| (i.size as i32, i.id)).collect(),
             discs: album
@@ -364,7 +338,6 @@ impl Spotify {
                 .map(|d| (d.number.max(1), d.tracks.0.clone()))
                 .collect(),
             copyrights: album.copyrights.iter().map(|c| c.text.clone()).collect(),
-            genres,
         });
         self.albums
             .lock()
@@ -378,16 +351,12 @@ impl Spotify {
             return Ok(artist.clone());
         }
         let uri = parse_id("artist", id)?;
-        let response = Artist::request(&self.session, &uri).await?;
-        let msg = <Artist as Metadata>::Message::parse_from_bytes(&response)?;
-        let genres = unknown_strings(msg.special_fields.unknown_fields(), ARTIST_GENRE_FIELD);
-        let artist = Artist::parse(&msg, &uri)?;
+        let artist = Artist::get(&self.session, &uri).await?;
 
         let ids = |groups: &librespot_metadata::artist::AlbumGroups| {
             groups.current_releases().map(base62).collect::<Vec<_>>()
         };
         let info = Arc::new(ArtistInfo {
-            genres,
             albums: HashMap::from([
                 ("album", ids(&artist.albums)),
                 ("single", ids(&artist.singles)),
@@ -544,7 +513,6 @@ mod tests {
             ],
             discs: vec![(1, vec![]), (2, vec![])],
             copyrights: vec![],
-            genres: vec![],
         };
         assert!(album.cover_url(false).unwrap().ends_with(&"02".repeat(20)));
         assert!(album.cover_url(true).unwrap().ends_with(&"03".repeat(20)));

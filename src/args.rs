@@ -23,7 +23,6 @@ pub struct Args {
     pub fail_log: Option<String>,
     pub format: String,
     pub format_case: Option<String>,
-    pub genres: Option<String>,
     pub grouping: Option<String>,
     pub id3_v23: bool,
     pub large_cover_art: bool,
@@ -107,7 +106,6 @@ pub fn command(version: &'static str) -> Command {
         .arg(opt("format_case", "format-case", "Convert all words of the file name to upper-case, lower-case, or capitalized").value_parser(["upper", "lower", "capitalize"]))
         .arg(flag("flat", "flat", "Save all songs to a single directory (overrides --format option)"))
         .arg(flag("flat_with_index", "flat-with-index", "Similar to --flat [-f] but includes the playlist index at the start of the song file"))
-        .arg(opt("genres", "genres", "Attempt to retrieve genre information from Spotify [Default=skip]").short('g').value_parser(["artist", "album"]))
         .arg(opt("grouping", "grouping", "Set grouping metadata tag to all songs. Can include same tags as --format."))
         .arg(flag("id3_v23", "id3-v23", "Store ID3 tags using version v2.3 [Default=v2.4]"))
         .arg(flag("large_cover_art", "large-cover-art", "Attempt to retrieve larger cover art from Spotify [Default=640x640]"))
@@ -248,7 +246,6 @@ pub fn resolve(matches: &ArgMatches, config: &Map<String, Value>) -> Args {
         fail_log: r.opt_str("fail_log"),
         format: r.string("format", ""),
         format_case: r.opt_str("format_case"),
-        genres: r.opt_str("genres"),
         grouping: r.opt_str("grouping"),
         id3_v23: r.flag("id3_v23"),
         large_cover_art: r.flag("large_cover_art"),
