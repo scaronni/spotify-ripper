@@ -19,7 +19,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -45,7 +45,7 @@ jobs:
           cp target/release/spotify-ripper dist/spotify-ripper-${{ matrix.arch }}-linux
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spotify-ripper-${{ matrix.arch }}-linux
           path: dist/spotify-ripper-${{ matrix.arch }}-linux
@@ -59,14 +59,14 @@ jobs:
       contents: write
     steps:
       - name: Download the binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: spotify-ripper-*-linux
           path: dist
           merge-multiple: true
 
       - name: Create release and attach the binaries
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/spotify-ripper-*-linux
           generate_release_notes: true
