@@ -1,4 +1,0 @@
-librespot>=0.0.10
-colorama>=0.3.3
-mutagen>=1.30
-requests>=2.13.0

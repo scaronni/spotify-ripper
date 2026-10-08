@@ -20,13 +20,13 @@ A few notes:
 
 ## Features
 
--  Downloads the native Ogg Vorbis stream from Spotify and transcodes to other formats with ffmpeg
+-  Downloads the native Ogg Vorbis stream from Spotify (using [librespot](https://github.com/librespot-org/librespot)) and transcodes to other formats with ffmpeg
 -  Writes ID3v2/metadata tags (including album covers)
 -  Rips files into the following directory structure: `artist/album/artist - song.mp3` by default or optionally into a user-specified structure (see `Format String`_ section below)
 -  Option to skip or overwrite existing files
 -  Accepts tracks, playlists, albums, and artist URIs
 -  One-time Zeroconf pairing with the official Spotify app; reusable credentials stored for later runs
--  Globally installs ripper using pip3
+-  Single self-contained binary, written in Rust
 -  Use a config file to specify common command-line options
 -  Helpful progress bar to gauge the time remaining until completion
 -  Keep local files in sync with a Spotify playlist, m3u and wpl playlist file
@@ -38,115 +38,136 @@ A few notes:
 
 ## Spotify URIs/URLs
 
-You can rip **songs, albums, playlists and artists**, passing either the share
-URL straight from the Spotify client or the equivalent `spotify:` URI. Both of
-these refer to the same artist and work identically:
+You can rip **songs, albums, playlists and artists**, passing either the share URL straight from the Spotify client or the equivalent `spotify:` URI. Both of these refer to the same artist and work identically:
 
 ```
 https://open.spotify.com/artist/0zfT626RwO6zN3RDYeRit5
 spotify:artist:0zfT626RwO6zN3RDYeRit5
 ```
 
-Pass one or more of them on the command line, or put a list of them (one per
-line, `#` for comments) in a text file and pass that file as a download queue.
-Nothing else is supported — search, charts and the "liked songs" library are
-not available.
+Pass one or more of them on the command line, or put a list of them (one per line, `#` for comments) in a text file and pass that file as a download queue. Nothing else is supported — search, charts and the "liked songs" library are not available.
 
-An **artist** URI rips the artist's full discography (all albums, singles and
-compilations). Use `--artist-album-type` to narrow that down, e.g.
-`--artist-album-type album` for studio albums only.
+An **artist** URI rips the artist's full discography (all albums, singles and compilations). Use `--artist-album-type` to narrow that down, e.g. `--artist-album-type album` for studio albums only.
+
+## Rate limits
+
+Spotify limits how many tracks can be fetched in a short time: after a burst of roughly 30 tracks, it only hands out about two per minute. When that happens the ripper retries each track up to `--retries` times (default 5), waiting 5, 10, 20, 40 seconds between attempts, or `--delay` seconds if set. `--delay` also pauses between tracks, which keeps a long rip under the limit.
 
 ## Program usage
 
 The program takes many command-line options:
 
 ```
-usage: spotify-ripper [-h] [--login] [-a] [--aiff | --alac | --flac | --id3-v23 | --pcm | --mp4 | --opus | --wav | --vorbis] [--all-artists]
-                      [--artist-album-type ARTIST_ALBUM_TYPE] [-A] [-b BITRATE] [-c] [--comp COMP]
-                      [--comment COMMENT] [--cover-file COVER_FILE] [--cover-file-and-embed COVER_FILE] [-d DIRECTORY] [--fail-log FAIL_LOG] [-f FORMAT]
-                      [--format-case {upper,lower,capitalize}] [--flat] [--flat-with-index] [-g {artist,album}] [--grouping GROUPING] [--large-cover-art]
-                      [-L LOG] [-na] [-o] [--partial-check {none,weak,strict}] [--playlist-m3u] [--playlist-wpl] [--playlist-sync] [--plus-pcm]
-                      [--plus-wav] [-q VBR] [-Q {160,320,96}] [--keep-offline-cache] [--retries RETRIES] [--delay DELAY] [--resume-after RESUME_AFTER] [-R REPLACE [REPLACE ...]] [-s]
-                      [--stereo-mode {j,s,f,d,m,l,r}] [--stop-after STOP_AFTER] [-V] [--windows-safe]
-                      [uri ...]
-
 Rips Spotify URIs to media files with tags and album covers
 
-positional arguments:
-  uri                   One or more Spotify URI(s) (either a URI or a file of URIs)
+Usage: spotify-ripper [OPTIONS] [uri]...
 
-options:
-  -h, --help            show this help message and exit
-  --login               Pair with Spotify over Zeroconf (select "spotify-ripper" in the device list of the official Spotify app), saving reusable credentials
-                        for later runs
-  -a, --ascii           Convert the file name and the metadata tags to ASCII encoding [Default=utf-8]
-  --aiff                Rip songs to lossless AIFF encoding instead of MP3
-  --alac                Rip songs to Apple Lossless format instead of MP3
-  --all-artists         Store all artists, rather than just the main artist, in the track's metadata tag
-  --artist-album-type ARTIST_ALBUM_TYPE
-                        Comma-separated album types to include when ripping an artist URI: album, single, compilation, appears_on [Default=album,single,compilation]
+Arguments:
+  [uri]...  One or more Spotify URI(s) (either a URI or a file of URIs)
+
+Options:
+      --login
+          Pair with Spotify over Zeroconf (select "spotify-ripper" in the device list of the official Spotify app), saving reusable credentials for later runs
+  -a, --ascii
+          Convert the file name and the metadata tags to ASCII encoding [Default=utf-8]
+      --aiff
+          Rip songs to lossless AIFF encoding instead of MP3
+      --alac
+          Rip songs to Apple Lossless format instead of MP3
+      --all-artists
+          Store all artists, rather than just the main artist, in the track's metadata tag
+      --artist-album-type <ARTIST_ALBUM_TYPE>
+          Comma-separated album types to include when ripping an artist URI: album, single, compilation, appears_on [Default=album,single,compilation]
   -A, --ascii-path-only
-                        Convert the file name (but not the metadata tags) to ASCII encoding [Default=utf-8]
-  -b, --bitrate BITRATE
-                        CBR bitrate [Default=320]
-  -c, --cbr             CBR encoding [Default=VBR]
-  --comp COMP           compression complexity for FLAC and Opus [Default=Max]
-  --comment COMMENT     Set comment metadata tag to all songs. Can include same tags as --format.
-  --cover-file COVER_FILE
-                        Save album cover image to file name (e.g "cover.jpg") [Default=embed]
-  --cover-file-and-embed COVER_FILE
-                        Same as --cover-file but embeds the cover image too
-  -d, --directory DIRECTORY
-                        Base directory where ripped songs are saved [Default=~/Music]
-  --fail-log FAIL_LOG   Logs the list of track URIs that failed to rip
-  --flac                Rip songs to lossless FLAC encoding instead of MP3
-  -f, --format FORMAT   Save songs using this path and filename structure (see README)
-  --format-case {upper,lower,capitalize}
-                        Convert all words of the file name to upper-case, lower-case, or capitalized
-  --flat                Save all songs to a single directory (overrides --format option)
-  --flat-with-index     Similar to --flat [-f] but includes the playlist index at the start of the song file
-  -g, --genres {artist,album}
-                        Attempt to retrieve genre information from Spotify [Default=skip]
-  --grouping GROUPING   Set grouping metadata tag to all songs. Can include same tags as --format.
-  --id3-v23             Store ID3 tags using version v2.3 [Default=v2.4]
-  --large-cover-art     Attempt to retrieve larger cover art from Spotify [Default=300x300]
-  -L, --log LOG         Log in a log-friendly format to a file (use - to log to stdout)
-  --pcm                 Saves a .pcm file with the raw PCM data instead of MP3
-  --mp4                 Rip songs to MP4/M4A format with Fraunhofer FDK AAC codec instead of MP3
-  -na, --normalized-ascii
-                        Convert the file name to normalized ASCII with unicodedata.normalize (NFKD)
-  -o, --overwrite       Overwrite existing MP3 files [Default=skip]
-  --opus                Rip songs to Opus encoding instead of MP3
-  --partial-check {none,weak,strict}
-                        Check for and overwrite partially ripped files. "weak" will err on the side of not re-ripping the file if it is unsure, whereas
-                        "strict" will re-rip the file [Default=weak]
-  --playlist-m3u        create a m3u file when ripping a playlist
-  --playlist-wpl        create a wpl file when ripping a playlist
-  --playlist-sync       Sync playlist songs (rename and remove old songs)
-  --plus-pcm            Saves a .pcm file in addition to the encoded file (e.g. mp3)
-  --plus-wav            Saves a .wav file in addition to the encoded file (e.g. mp3)
-  -q, --vbr VBR         VBR quality setting or target bitrate for Opus [Default=0]
-  -Q, --quality {160,320,96}
-                        Spotify stream bitrate preference (320 requires Premium) [Default=320]
-  --keep-offline-cache  Keep librespot's offline audio cache instead of deleting it after a successful rip [Default=delete]
-  --retries RETRIES     Number of times to retry a track when Spotify rate-limits its audio key [Default=5]
-  --delay DELAY         Seconds to wait between tracks and between retries; raise this if you hit audio-key rate limits [Default=0]
-  --resume-after RESUME_AFTER
-                        Resumes script after a certain amount of time has passed after stopping (e.g. 1h30m). Alternatively, accepts a specific time in 24hr
-                        format to start after (e.g 03:30, 16:15). Requires --stop-after option to be set
-  -R, --replace REPLACE [REPLACE ...]
-                        pattern to replace the output filename separated by "/". The following example replaces all spaces with "_" and all "-" with ".":
-                        spotify-ripper --replace " /_" "\-/." uri
-  -s, --strip-colors    Strip coloring from output [Default=colors]
-  --stereo-mode {j,s,f,d,m,l,r}
-                        Advanced stereo settings for Lame MP3 encoder only
-  --stop-after STOP_AFTER
-                        Stops script after a certain amount of time has passed (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to stop
-                        after (e.g 03:30, 16:15)
-  -V, --version         show program's version number and exit
-  --wav                 Rip songs to uncompressed WAV file instead of MP3
-  --windows-safe        Make filename safe for Windows file system (truncate filename to 255 characters)
-  --vorbis              Rip songs to native Ogg Vorbis (copied straight from Spotify, no re-encode)
+          Convert the file name (but not the metadata tags) to ASCII encoding [Default=utf-8]
+  -b, --bitrate <BITRATE>
+          CBR bitrate [Default=320]
+  -c, --cbr
+          CBR encoding [Default=VBR]
+      --comp <COMP>
+          compression complexity for FLAC and Opus [Default=Max]
+      --comment <COMMENT>
+          Set comment metadata tag to all songs. Can include same tags as --format.
+      --cover-file <COVER_FILE>
+          Save album cover image to file name (e.g "cover.jpg") [Default=embed]
+      --cover-file-and-embed <COVER_FILE>
+          Same as --cover-file but embeds the cover image too
+  -d, --directory <DIRECTORY>
+          Base directory where ripped songs are saved [Default=~/Music]
+      --fail-log <FAIL_LOG>
+          Logs the list of track URIs that failed to rip
+      --flac
+          Rip songs to lossless FLAC encoding instead of MP3
+  -f, --format <FORMAT>
+          Save songs using this path and filename structure (see README)
+      --format-case <FORMAT_CASE>
+          Convert all words of the file name to upper-case, lower-case, or capitalized [possible values: upper, lower, capitalize]
+      --flat
+          Save all songs to a single directory (overrides --format option)
+      --flat-with-index
+          Similar to --flat [-f] but includes the playlist index at the start of the song file
+  -g, --genres <GENRES>
+          Attempt to retrieve genre information from Spotify [Default=skip] [possible values: artist, album]
+      --grouping <GROUPING>
+          Set grouping metadata tag to all songs. Can include same tags as --format.
+      --id3-v23
+          Store ID3 tags using version v2.3 [Default=v2.4]
+      --large-cover-art
+          Attempt to retrieve larger cover art from Spotify [Default=300x300]
+  -L, --log <LOG>
+          Log in a log-friendly format to a file (use - to log to stdout)
+      --pcm
+          Saves a .pcm file with the raw PCM data instead of MP3
+      --mp4
+          Rip songs to MP4/M4A format with Fraunhofer FDK AAC codec instead of MP3
+      --normalized-ascii
+          Convert the file name to normalized ASCII with unicodedata.normalize (NFKD)
+  -o, --overwrite
+          Overwrite existing MP3 files [Default=skip]
+      --opus
+          Rip songs to Opus encoding instead of MP3
+      --partial-check <PARTIAL_CHECK>
+          Check for and overwrite partially ripped files. "weak" will err on the side of not re-ripping the file if it is unsure, whereas "strict" will re-rip the file [Default=weak] [possible values: none, weak, strict]
+      --playlist-m3u
+          create a m3u file when ripping a playlist
+      --playlist-wpl
+          create a wpl file when ripping a playlist
+      --playlist-sync
+          Sync playlist songs (rename and remove old songs)
+      --plus-pcm
+          Saves a .pcm file in addition to the encoded file (e.g. mp3)
+      --plus-wav
+          Saves a .wav file in addition to the encoded file (e.g. mp3)
+  -q, --vbr <VBR>
+          VBR quality setting or target bitrate for Opus [Default=0]
+  -Q, --quality <QUALITY>
+          Spotify stream bitrate preference (320 requires Premium) [Default=320] [possible values: 160, 320, 96]
+      --keep-offline-cache
+          Keep librespot's offline audio cache instead of deleting it after a successful rip [Default=delete]
+      --retries <RETRIES>
+          Number of times to retry a track when Spotify rate-limits its audio key [Default=5]
+      --delay <DELAY>
+          Seconds to wait between tracks and between retries; raise this if you hit audio-key rate limits [Default=0]
+      --resume-after <RESUME_AFTER>
+          Resumes script after a certain amount of time has passed after stopping (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to start after (e.g 03:30, 16:15). Requires --stop-after option to be set
+  -R, --replace <REPLACE>...
+          pattern to replace the output filename separated by "/". The following example replaces all spaces with "_" and all "-" with ".": spotify-ripper --replace " /_" "\-/." uri
+  -s, --strip-colors
+          Strip coloring from output [Default=colors]
+      --stereo-mode <STEREO_MODE>
+          Advanced stereo settings for Lame MP3 encoder only [possible values: j, s, f, d, m, l, r]
+      --stop-after <STOP_AFTER>
+          Stops script after a certain amount of time has passed (e.g. 1h30m). Alternatively, accepts a specific time in 24hr format to stop after (e.g 03:30, 16:15)
+  -V, --version
+          show program's version number and exit
+      --wav
+          Rip songs to uncompressed WAV file instead of MP3
+      --windows-safe
+          Make filename safe for Windows file system (truncate filename to 255 characters)
+      --vorbis
+          Rip songs to native Ogg Vorbis (copied straight from Spotify, no re-encode)
+  -h, --help
+          Print help
 
 Example usage:
     pair with Spotify (once): spotify-ripper --login
@@ -228,57 +249,43 @@ If you want to redownload a playlist (for example with improved quality), you ei
 
 ## Installation
 
-### Prebuilt executable (.pyz)
+### Prebuilt binary
 
-Each release attaches a self-contained `.pyz` (built with [shiv](https://shiv.readthedocs.io/)) that bundles all Python dependencies — so it sidesteps any system `protobuf` version conflicts. Download the file matching your Python version from the [Releases](https://github.com/scaronni/spotify-ripper/releases) page and run it:
+Each release attaches an x86_64 Linux binary (it needs glibc and OpenSSL 3) to the [Releases](https://github.com/scaronni/spotify-ripper/releases) page. Download it, make it executable and run it:
 
 ```
-$ python3 spotify-ripper-py3.13.pyz spotify:track:...
-# or make it directly executable:
-$ chmod +x spotify-ripper-py3.13.pyz && ./spotify-ripper-py3.13.pyz spotify:track:...
+$ chmod +x spotify-ripper && ./spotify-ripper spotify:track:...
 ```
 
-Notes:
-- Pick the `.pyz` whose version matches your Python (e.g. `py3.13` for Python 3.13) — it embeds compiled extensions tied to that version.
-- It still needs the system tools (`ffmpeg`, `lame`, …) from the Prerequisites below; only the Python dependencies are bundled.
-- To build one yourself: `pip install shiv && shiv -c spotify-ripper -o spotify-ripper.pyz .`
+It still needs the system tools (`ffmpeg`, `lame`, …) listed under [Prerequisites](#prerequisites).
 
 ### Fedora
 
-1. Install the command-line tools. `ffmpeg` is required (plus `lame` for the default MP3 output); the rest are optional and only needed for their respective output formats:
-
-   ```
-   $ sudo dnf install ffmpeg lame
-   $ sudo dnf install flac opus-tools sox fdkaac
-   ```
-
-2. Install the ripper with `pip` (this pulls in the Python dependencies automatically):
-
-   ```
-   $ pip3 install --user --upgrade git+https://github.com/scaronni/spotify-ripper
-   ```
-
-### Other systems
-
-Install the system tools listed under [Prerequisites](#prerequisites) with your package manager, then install the ripper with `pip3`:
+Packages are available in the [negativo17 multimedia repository](https://negativo17.org/):
 
 ```
-$ pip3 install --user --upgrade git+https://github.com/scaronni/spotify-ripper
+$ sudo dnf install spotify-ripper
+```
+
+`ffmpeg` and `lame` are installed as dependencies; the encoders for the other formats are optional:
+
+```
+$ sudo dnf install flac opus-tools sox fdkaac
+```
+
+### From source
+
+Building requires Rust 1.85 or later and the OpenSSL development files (`openssl-devel` on Fedora, `libssl-dev` on Debian/Ubuntu):
+
+```
+$ cargo install --locked --git https://github.com/scaronni/spotify-ripper
 ```
 
 ### Prerequisites
 
 A **Spotify Premium** account (required for 320 kbps; free accounts get 160 kbps).
 
-Python libraries (installed automatically by pip):
-
--  [librespot](https://github.com/kokarare1212/librespot-python)
--  [colorama](https://pypi.python.org/pypi/colorama)
--  [mutagen](https://mutagen.readthedocs.org/en/latest/)
--  [requests](https://pypi.org/project/requests/)
--  [schedule](https://pypi.org/project/schedule/)
-
-System libraries and commands:
+System commands:
 
 -  [ffmpeg](https://ffmpeg.org/download.html#releases) — required for every output format except native Ogg Vorbis (`--vorbis`); it decodes the downloaded Spotify stream to PCM
 -  [lame](http://lame.sourceforge.net) — for MP3 output (the default)

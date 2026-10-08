@@ -1,11 +1,1 @@
-# Byte-compiled / cached
-*.py[cod]
-__pycache__/
-
-# Packaging / build artifacts
-*.egg
-*.egg-info/
-build/
-dist/
-.eggs/
-*.pyz
+/target/
