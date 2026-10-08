@@ -251,10 +251,10 @@ If you want to redownload a playlist (for example with improved quality), you ei
 
 ### Prebuilt binary
 
-Each release attaches an x86_64 Linux binary (it needs glibc and OpenSSL 3) to the [Releases](https://github.com/scaronni/spotify-ripper/releases) page. Download it, make it executable and run it:
+Each release attaches Linux binaries for x86_64 (`spotify-ripper-x86_64-linux`) and aarch64 (`spotify-ripper-aarch64-linux`) to the [Releases](https://github.com/scaronni/spotify-ripper/releases) page; they need glibc and OpenSSL 3. Download the one for your machine, make it executable and run it:
 
 ```
-$ chmod +x spotify-ripper && ./spotify-ripper spotify:track:...
+$ chmod +x spotify-ripper-x86_64-linux && ./spotify-ripper-x86_64-linux spotify:track:...
 ```
 
 It still needs the system tools (`ffmpeg`, `lame`, …) listed under [Prerequisites](#prerequisites).

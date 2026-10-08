@@ -9,9 +9,22 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
@@ -26,13 +39,16 @@ jobs:
         run: cargo test --locked
 
       - name: Build
-        run: cargo build --release --locked
+        run: |
+          cargo build --release --locked
+          mkdir dist
+          cp target/release/spotify-ripper dist/spotify-ripper-${{ matrix.arch }}-linux
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: spotify-ripper-x86_64-linux
-          path: target/release/spotify-ripper
+          name: spotify-ripper-${{ matrix.arch }}-linux
+          path: dist/spotify-ripper-${{ matrix.arch }}-linux
           if-no-files-found: error
 
   release:
@@ -42,14 +58,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download the binary
+      - name: Download the binaries
         uses: actions/download-artifact@v4
         with:
-          name: spotify-ripper-x86_64-linux
+          pattern: spotify-ripper-*-linux
           path: dist
+          merge-multiple: true
 
-      - name: Create release and attach the binary
+      - name: Create release and attach the binaries
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/spotify-ripper
+          files: dist/spotify-ripper-*-linux
           generate_release_notes: true
