@@ -1,6 +1,6 @@
 [package]
 name = "spotify-ripper"
-version = "4.1.0"
+version = "4.1.1"
 edition = "2024"
 rust-version = "1.85"
 description = "A small ripper for Spotify that rips Spotify URIs to media files"
