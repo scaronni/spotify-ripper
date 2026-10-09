@@ -18,7 +18,9 @@ use librespot_discovery::Discovery;
 use librespot_metadata::audio::{AudioFileFormat, AudioItem};
 use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
 use librespot_protocol::authentication::AuthenticationType;
-use protobuf::Message;
+use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
+use librespot_protocol::extension_kind::ExtensionKind;
+use protobuf::{EnumOrUnknown, Message};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
@@ -40,6 +42,10 @@ const IMAGE_URL: &str = "https://i.scdn.co/image/";
 
 /// Spotify prepends a custom header (with normalisation data) to its Ogg files.
 const SPOTIFY_OGG_HEADER_END: u64 = 0xa7;
+
+/// Entities per extended metadata request, and attempts for throttled ones.
+const METADATA_BATCH: usize = 50;
+const METADATA_ATTEMPTS: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Credentials, stored in the format used by spotify-ripper 3.x
@@ -255,6 +261,26 @@ pub fn parse_id(kind: &str, id: &str) -> Result<SpotifyUri> {
     })
 }
 
+fn album_info(album: &Album) -> AlbumInfo {
+    let images = if album.cover_group.is_empty() {
+        &album.covers
+    } else {
+        &album.cover_group
+    };
+    AlbumInfo {
+        name: album.name.clone(),
+        artists: artist_refs(album.artists.iter().map(|a| &a.name)),
+        year: album.date.as_utc().year(),
+        covers: images.iter().map(|i| (i.size as i32, i.id)).collect(),
+        discs: album
+            .discs
+            .iter()
+            .map(|d| (d.number.max(1), d.tracks.0.clone()))
+            .collect(),
+        copyrights: album.copyrights.iter().map(|c| c.text.clone()).collect(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session, metadata and audio access
 // ---------------------------------------------------------------------------
@@ -299,51 +325,197 @@ impl Spotify {
         self.session.shutdown();
     }
 
-    pub async fn track(&self, id: &str) -> Result<TrackInfo> {
-        let uri = parse_id("track", id)?;
-        let track = Track::get(&self.session, &uri).await?;
-        let album = self.album(&base62(&track.album.id)).await?;
-        Ok(TrackInfo {
-            available: !track.files.is_empty() || !track.alternatives.is_empty(),
-            id: id.to_owned(),
-            name: track.name,
-            duration: track.duration.max(0) as u32,
-            number: track.number,
-            disc: track.disc_number,
-            artists: artist_refs(track.artists.iter().map(|a| &a.name)),
-            album,
-        })
+    /// Fetch the extended metadata of several entities, in batches. Spotify
+    /// throttles these requests by answering without data (or with a 429/5xx
+    /// status), so those entities are retried with a growing delay.
+    async fn extended_metadata(
+        &self,
+        kind: ExtensionKind,
+        uris: &[SpotifyUri],
+    ) -> HashMap<String, std::result::Result<Vec<u8>, String>> {
+        let mut results = HashMap::new();
+        let mut pending: Vec<&SpotifyUri> = uris.iter().collect();
+
+        for attempt in 0..METADATA_ATTEMPTS {
+            if pending.is_empty() {
+                break;
+            }
+            if attempt > 0 {
+                let delay = 1 << (attempt - 1);
+                log::debug!("retrying metadata for {} items in {delay}s", pending.len());
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+            }
+
+            let mut retry = Vec::new();
+            for batch in pending.chunks(METADATA_BATCH) {
+                let request = BatchedEntityRequest {
+                    entity_request: batch
+                        .iter()
+                        .map(|uri| EntityRequest {
+                            entity_uri: uri.to_uri(),
+                            query: vec![ExtensionQuery {
+                                extension_kind: EnumOrUnknown::new(kind),
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                };
+                let response = match self.session.spclient().get_extended_metadata(request).await {
+                    Ok(response) => response,
+                    Err(e) => {
+                        for uri in batch {
+                            results.insert(uri.to_uri(), Err(e.to_string()));
+                        }
+                        retry.extend_from_slice(batch);
+                        continue;
+                    }
+                };
+
+                for array in response.extended_metadata {
+                    for data in array.extension_data {
+                        let status = data.header.status_code;
+                        match data.extension_data.into_option() {
+                            Some(any) if !any.value.is_empty() => {
+                                results.insert(data.entity_uri, Ok(any.value));
+                            }
+                            _ => {
+                                results.insert(
+                                    data.entity_uri,
+                                    Err(format!("no metadata from Spotify (status {status})")),
+                                );
+                            }
+                        }
+                    }
+                }
+                for uri in batch {
+                    match results.get(&uri.to_uri()) {
+                        // a missing entity is permanent, anything else may clear
+                        Some(Err(e)) if !e.ends_with("(status 404)") => retry.push(*uri),
+                        Some(_) => {}
+                        None => {
+                            results.insert(uri.to_uri(), Err("no metadata from Spotify".into()));
+                            retry.push(*uri);
+                        }
+                    }
+                }
+            }
+            pending = retry;
+        }
+        results
+    }
+
+    /// Metadata of several tracks, in the given order, with their albums.
+    pub async fn tracks(&self, ids: &[String]) -> Vec<(String, Result<TrackInfo>)> {
+        let mut uris = Vec::new();
+        let mut out: Vec<(String, Result<TrackInfo>)> = Vec::new();
+        for id in ids {
+            match parse_id("track", id) {
+                Ok(uri) => uris.push(uri),
+                Err(e) => out.push((id.clone(), Err(e))),
+            }
+        }
+
+        let mut data = self.extended_metadata(ExtensionKind::TRACK_V4, &uris).await;
+        let mut parsed = Vec::new();
+        for uri in &uris {
+            let id = base62(uri);
+            let track = match data.remove(&uri.to_uri()) {
+                Some(Ok(bytes)) => <Track as Metadata>::Message::parse_from_bytes(&bytes)
+                    .map_err(Error::from)
+                    .and_then(|msg| Ok(Track::parse(&msg, uri)?)),
+                Some(Err(e)) => Err(e.into()),
+                None => Err("no metadata from Spotify".into()),
+            };
+            parsed.push((id, track));
+        }
+
+        let album_ids: Vec<String> = parsed
+            .iter()
+            .filter_map(|(_, t)| t.as_ref().ok().map(|t| base62(&t.album.id)))
+            .collect();
+        let albums: HashMap<String, Result<Arc<AlbumInfo>>> =
+            self.albums(&album_ids).await.into_iter().collect();
+
+        for (id, track) in parsed {
+            let info = track.and_then(|track| {
+                let album = match albums.get(&base62(&track.album.id)) {
+                    Some(Ok(album)) => album.clone(),
+                    Some(Err(e)) => return Err(format!("album: {e}").into()),
+                    None => return Err("album metadata missing".into()),
+                };
+                Ok(TrackInfo {
+                    available: !track.files.is_empty() || !track.alternatives.is_empty(),
+                    id: id.clone(),
+                    name: track.name,
+                    duration: track.duration.max(0) as u32,
+                    number: track.number,
+                    disc: track.disc_number,
+                    artists: artist_refs(track.artists.iter().map(|a| &a.name)),
+                    album,
+                })
+            });
+            out.push((id, info));
+        }
+        out
+    }
+
+    /// Metadata of several albums (cached), in the given order.
+    pub async fn albums(&self, ids: &[String]) -> Vec<(String, Result<Arc<AlbumInfo>>)> {
+        let missing: Vec<SpotifyUri> = {
+            let cache = self.albums.lock().unwrap();
+            let mut seen = std::collections::HashSet::new();
+            ids.iter()
+                .filter(|id| !cache.contains_key(*id) && seen.insert(id.as_str()))
+                .filter_map(|id| parse_id("album", id).ok())
+                .collect()
+        };
+
+        let mut errors = HashMap::new();
+        let mut data = self
+            .extended_metadata(ExtensionKind::ALBUM_V4, &missing)
+            .await;
+        for uri in &missing {
+            let album = match data.remove(&uri.to_uri()) {
+                Some(Ok(bytes)) => <Album as Metadata>::Message::parse_from_bytes(&bytes)
+                    .map_err(Error::from)
+                    .and_then(|msg| Ok(Album::parse(&msg, uri)?)),
+                Some(Err(e)) => Err(e.into()),
+                None => Err("no metadata from Spotify".into()),
+            };
+            match album {
+                Ok(album) => {
+                    let info = Arc::new(album_info(&album));
+                    self.albums.lock().unwrap().insert(base62(uri), info);
+                }
+                Err(e) => {
+                    errors.insert(base62(uri), e.to_string());
+                }
+            }
+        }
+
+        let cache = self.albums.lock().unwrap();
+        ids.iter()
+            .map(|id| {
+                let album = match cache.get(id) {
+                    Some(album) => Ok(album.clone()),
+                    None => Err(errors
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("invalid album id {id}"))
+                        .into()),
+                };
+                (id.clone(), album)
+            })
+            .collect()
     }
 
     pub async fn album(&self, id: &str) -> Result<Arc<AlbumInfo>> {
-        if let Some(album) = self.albums.lock().unwrap().get(id) {
-            return Ok(album.clone());
+        match self.albums(&[id.to_owned()]).await.pop() {
+            Some((_, album)) => album,
+            None => Err("no metadata from Spotify".into()),
         }
-        let uri = parse_id("album", id)?;
-        let album = Album::get(&self.session, &uri).await?;
-
-        let images = if album.cover_group.is_empty() {
-            &album.covers
-        } else {
-            &album.cover_group
-        };
-        let info = Arc::new(AlbumInfo {
-            name: album.name.clone(),
-            artists: artist_refs(album.artists.iter().map(|a| &a.name)),
-            year: album.date.as_utc().year(),
-            covers: images.iter().map(|i| (i.size as i32, i.id)).collect(),
-            discs: album
-                .discs
-                .iter()
-                .map(|d| (d.number.max(1), d.tracks.0.clone()))
-                .collect(),
-            copyrights: album.copyrights.iter().map(|c| c.text.clone()).collect(),
-        });
-        self.albums
-            .lock()
-            .unwrap()
-            .insert(id.to_owned(), info.clone());
-        Ok(info)
     }
 
     pub async fn artist(&self, id: &str) -> Result<Arc<ArtistInfo>> {
@@ -351,7 +523,17 @@ impl Spotify {
             return Ok(artist.clone());
         }
         let uri = parse_id("artist", id)?;
-        let artist = Artist::get(&self.session, &uri).await?;
+        let bytes = match self
+            .extended_metadata(ExtensionKind::ARTIST_V4, std::slice::from_ref(&uri))
+            .await
+            .remove(&uri.to_uri())
+        {
+            Some(Ok(bytes)) => bytes,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Err("no metadata from Spotify".into()),
+        };
+        let msg = <Artist as Metadata>::Message::parse_from_bytes(&bytes)?;
+        let artist = Artist::parse(&msg, &uri)?;
 
         let ids = |groups: &librespot_metadata::artist::AlbumGroups| {
             groups.current_releases().map(base62).collect::<Vec<_>>()

@@ -382,15 +382,16 @@ impl Ripper {
         }
     }
 
-    /// Load track metadata; `what` prefixes the loading status line.
-    async fn load_tracks(&self, ids: &[String], what: &str) -> Vec<TrackInfo> {
+    /// Load track metadata (batched), warning about the tracks that fail.
+    async fn load_tracks(&self, ids: &[String]) -> Vec<TrackInfo> {
+        if ids.is_empty() || aborted() {
+            return Vec::new();
+        }
+        let plural = if ids.len() == 1 { "" } else { "s" };
+        progress().loading(&format!("loading {} track{plural}", ids.len()));
         let mut tracks = Vec::new();
-        for (i, id) in ids.iter().enumerate() {
-            if aborted() {
-                break;
-            }
-            progress().loading(&format!("{what}loading track {}/{}", i + 1, ids.len()));
-            match self.spotify.track(id).await {
+        for (id, track) in self.spotify.tracks(ids).await {
+            match track {
                 Ok(t) => tracks.push(t),
                 Err(e) => {
                     progress().clear_loading();
@@ -420,7 +421,7 @@ impl Ripper {
         let id = uri_to_id(uri).to_owned();
 
         if uri.starts_with("spotify:track:") {
-            job.tracks = self.load_tracks(&[id], "").await;
+            job.tracks = self.load_tracks(&[id]).await;
         } else if uri.starts_with("spotify:playlist:") {
             let playlist = self.spotify.playlist(&id).await?;
             let ids: Vec<String> = playlist
@@ -428,11 +429,11 @@ impl Ripper {
                 .iter()
                 .map(|t| uri_to_id(t).to_owned())
                 .collect();
-            job.tracks = self.load_tracks(&ids, "").await;
+            job.tracks = self.load_tracks(&ids).await;
             job.playlist = Some(playlist);
         } else if uri.starts_with("spotify:album:") {
             let album = self.spotify.album(&id).await?;
-            job.tracks = self.load_tracks(&Self::album_track_ids(&album), "").await;
+            job.tracks = self.load_tracks(&Self::album_track_ids(&album)).await;
             job.album = Some(album);
         } else if uri.starts_with("spotify:artist:") {
             // the full discography, filtered by --artist-album-type
@@ -441,28 +442,24 @@ impl Ripper {
                 Some(t) => t.split(',').map(|s| s.trim().to_owned()).collect(),
                 None => vec!["album".into(), "single".into(), "compilation".into()],
             };
-            let album_ids: Vec<&String> = wanted
+            let album_ids: Vec<String> = wanted
                 .iter()
                 .filter_map(|w| artist.albums.get(w.as_str()))
                 .flatten()
+                .cloned()
                 .collect();
-            let count = album_ids.len();
-            for (i, album_id) in album_ids.into_iter().enumerate() {
-                if aborted() {
-                    break;
-                }
-                let what = format!("album {}/{count}, ", i + 1);
-                match self.spotify.album(album_id).await {
-                    Ok(album) => {
-                        let ids = Self::album_track_ids(&album);
-                        job.tracks.extend(self.load_tracks(&ids, &what).await);
-                    }
+            progress().loading(&format!("loading {} albums", album_ids.len()));
+            let mut track_ids = Vec::new();
+            for (album_id, album) in self.spotify.albums(&album_ids).await {
+                match album {
+                    Ok(album) => track_ids.extend(Self::album_track_ids(&album)),
                     Err(e) => {
                         progress().clear_loading();
                         warn!("cannot load spotify:album:{album_id}: {}", short_error(&e));
                     }
                 }
             }
+            job.tracks = self.load_tracks(&track_ids).await;
         } else if !uri.is_empty() {
             warn!("ignoring unsupported URI {uri}");
         }
